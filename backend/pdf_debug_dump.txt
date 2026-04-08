@@ -1,0 +1,61 @@
+DATE :
+SPECIFICATION
+Material type, Dimension, ASC-
+Code, Part No etc
+REQUIREME
+NT STOCK IN HAND TO BUY
+1 PC7000 GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $1,17,100.20
+2 D375 GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $17,282.68
+3 55Axi GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $1,817.82
+4 PC490 GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $3,710.18
+5 WA600 GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $26,133.01
+6 WA380 GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $1,960.30
+7 GD955 GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $31,125.67
+8 GD655 GET RMS
+Attached File
+ea 1 0 1 Mine Immediate $10,756.88
+9 XPB2800 GET Komatsu
+Attached File
+ea 1 0 1 Mine Immediate $50,521.90
+10 WA1850 GET Komatsu
+Attached File
+ea 1 0 1 Mine Immediate $32,531.68
+11 PV351 RMS
+Attached File
+ea 1 0 1 Mine Immediate $47,518.47
+TOTAL $3,40,458.79
+Special Instruction if any:
+Approved by
+Project Head
+To be filled by Purchase Dept:
+Purchase Indent No:
+Receipt Date:
+Deocument Reference No:
+M-1017-M-MIN-
+GET
+SIZE
+QUANTITY
+Area of Utilization
+Verified by : Shane HolmanIndentor: Erin Nordstrand Joe Broking
+MESABI METALLICS COMPANY LLC
+UOM
+PURCHASE REQUISITION
+INDENT NO : MMCL/MIN/GET/PR-098 11-Feb-26DEPT : Mining
+R.O.S Est. Value (USD) Budget / Cost
+Head
+S.No ITEM DESCRIPTION
+

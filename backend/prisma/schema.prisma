@@ -1,0 +1,622 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+model Department {
+  id          String       @id @default(uuid())
+  name        String       @unique
+  code        String       @unique
+  budgetHeads BudgetHead[]
+  prs         Pr[]
+  wbsMasters  WbsMaster[]
+  approvers   Approver[]
+}
+
+model Vendor {
+  id          String         @id @default(uuid())
+  name        String
+  code        String         @unique
+  email       String         @unique
+  phone       String?
+  address     String?
+  gstin       String?
+  pan         String?
+  category    VendorCategory @default(GOODS)
+  isActive    Boolean        @default(true)
+  rfqVendors  RFQVendor[]
+  quotations  Quotation[]
+  pos         PurchaseOrder[]
+  invoices    Invoice[]
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+enum VendorCategory {
+  GOODS
+  SERVICES
+  BOTH
+}
+
+model RFQ {
+  id          String      @id @default(uuid())
+  rfqNumber   String      @unique
+  prId        String
+  pr          Pr          @relation(fields: [prId], references: [id])
+  title       String
+  description String?
+  deadline    DateTime
+  status      RFQStatus   @default(DRAFT)
+  rfqVendors  RFQVendor[]
+  quotations  Quotation[]
+  pos         PurchaseOrder[]
+  technicalReviews TechnicalReview[]
+  createdAt   DateTime    @default(now())
+  updatedAt   DateTime    @updatedAt
+}
+
+enum RFQStatus {
+  DRAFT
+  SENT
+  FLOATED
+  RESPONSES_RECEIVED
+  VENDOR_SELECTED
+  CLOSED
+  CANCELLED
+}
+
+model RFQVendor {
+  id        String          @id @default(uuid())
+  rfqId     String
+  rfq       RFQ             @relation(fields: [rfqId], references: [id], onDelete: Cascade)
+  vendorId  String
+  vendor    Vendor          @relation(fields: [vendorId], references: [id])
+  token     String          @unique
+  status    RFQVendorStatus @default(PENDING)
+  sentAt    DateTime?
+  quotation Quotation?
+  createdAt DateTime        @default(now())
+
+  @@unique([rfqId, vendorId])
+}
+
+enum RFQVendorStatus {
+  PENDING
+  RESPONDED
+  DECLINED
+}
+
+model Quotation {
+  id            String          @id @default(uuid())
+  rfqVendorId   String          @unique
+  rfqVendor     RFQVendor       @relation(fields: [rfqVendorId], references: [id], onDelete: Cascade)
+  rfqId         String
+  rfq           RFQ             @relation(fields: [rfqId], references: [id])
+  vendorId      String
+  vendor        Vendor          @relation(fields: [vendorId], references: [id])
+  totalAmount   Decimal
+  taxAmount     Decimal         @default(0)
+  deliveryDays  Int?
+  validityDays  Int?
+  notes         String?
+  attachments   Json?           // [{filename, originalName, mimetype, size, path}]
+  status        QuotationStatus @default(SUBMITTED)
+  submittedAt   DateTime        @default(now())
+  lineItems     QuotationItem[]
+  pos           PurchaseOrder[]
+  technicalReviews TechnicalReview[]
+}
+
+enum QuotationStatus {
+  SUBMITTED
+  SELECTED
+  REJECTED
+}
+
+model QuotationItem {
+  id          String    @id @default(uuid())
+  quotationId String
+  quotation   Quotation @relation(fields: [quotationId], references: [id], onDelete: Cascade)
+  description String
+  qty         Decimal
+  unit        String?
+  unitPrice   Decimal
+  totalPrice  Decimal
+}
+
+model BudgetHead {
+  id                 String              @id @default(uuid())
+  name               String
+  code               String              @unique
+  departmentId       String
+  department         Department          @relation(fields: [departmentId], references: [id])
+  subClassifications SubClassification[]
+  monthlyBudgets     MonthlyBudget[]
+  allocations        Allocation[]
+  wbsMasters         WbsMaster[]
+
+  @@unique([departmentId, name])
+}
+
+model SubClassification {
+  id             String          @id @default(uuid())
+  name           String
+  code           String?         @unique
+  budgetHeadId   String
+  budgetHead     BudgetHead      @relation(fields: [budgetHeadId], references: [id])
+  monthlyBudgets MonthlyBudget[]
+  allocations    Allocation[]
+  wbsMasters     WbsMaster[]
+
+  @@unique([budgetHeadId, name])
+}
+
+model MonthlyBudget {
+  id                  String             @id @default(uuid())
+  month               Int
+  year                Int
+  budgetHeadId        String?
+  budgetHead          BudgetHead?        @relation(fields: [budgetHeadId], references: [id])
+  subClassificationId String?
+  subClassification   SubClassification? @relation(fields: [subClassificationId], references: [id])
+  amount              Decimal            @default(0)
+  allocated           Decimal            @default(0)
+  remaining           Decimal            @default(0)
+
+  @@unique([budgetHeadId, subClassificationId, month, year])
+}
+
+model Pr {
+  id             String          @id @default(uuid())
+  prNumber       String          @unique
+  prDate         DateTime        // dateOfIndent
+  dateOfApproval DateTime?
+  month          Int
+  year           Int
+  description    String
+  departmentId   String
+  department     Department      @relation(fields: [departmentId], references: [id])
+  totalValue     Decimal         // amount
+  wbsCode        String?
+  area           String?
+  status         PrStatus        @default(PENDING)
+  indentor       String?
+  indentorEmail  String?
+  approver       String?
+  verifiedBy     String?
+  createdById    String?
+  createdBy      User?           @relation("UserPrs", fields: [createdById], references: [id])
+  pdfPath        String?         // relative path to stored PDF
+  excelPath      String?         // relative path to generated Excel PR
+  lineItems      Json?           // JSON array: [{ sNo, description, estValue }]
+  allocations    Allocation[]
+  approvals      PrApproval[]
+  rfqs           RFQ[]
+  pos            PurchaseOrder[]
+  techSpec       TechnicalSpecification?
+  deletedAt      DateTime?       // null = active, set = soft-deleted
+  deletionReason String?         // required comment captured at time of deletion
+  createdAt      DateTime        @default(now())
+  updatedAt      DateTime        @updatedAt
+}
+
+enum PrStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Approver {
+  id           String       @id @default(uuid())
+  name         String
+  email        String       @unique
+  departmentId String?
+  department   Department?  @relation(fields: [departmentId], references: [id])
+  signaturePath String?      // Path to stored signature image
+  prApprovals  PrApproval[]
+  poApprovals  PoApproval[]
+  createdAt    DateTime     @default(now())
+}
+
+model PrApproval {
+  id          String         @id @default(uuid())
+  prId        String
+  pr          Pr             @relation(fields: [prId], references: [id], onDelete: Cascade)
+  approverId  String
+  approver    Approver       @relation(fields: [approverId], references: [id])
+  role        PrRole         @default(INDENTOR)
+  token       String         @unique
+  status      ApprovalStatus @default(PENDING)
+  comments    String?
+  respondedAt DateTime?
+  createdAt   DateTime       @default(now())
+}
+
+enum PrRole {
+  INDENTOR
+  STAGE1
+  STAGE2
+  STAGE3
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+}
+
+model Allocation {
+  id                  String             @id @default(uuid())
+  prId                String
+  pr                  Pr                 @relation(fields: [prId], references: [id])
+  budgetHeadId        String?
+  budgetHead          BudgetHead?        @relation(fields: [budgetHeadId], references: [id])
+  subClassificationId String?
+  subClassification   SubClassification? @relation(fields: [subClassificationId], references: [id])
+  amount              Decimal
+  isManualOverride    Boolean            @default(false)
+  overrideReason      String?
+  timestamp           DateTime           @default(now())
+  userId              String?            // For manual override tracking
+}
+
+model WbsMaster {
+  id                  String             @id @default(uuid())
+  wbsCode             String             @unique
+  departmentId        String
+  department          Department         @relation(fields: [departmentId], references: [id])
+  budgetHeadId        String
+  budgetHead          BudgetHead         @relation(fields: [budgetHeadId], references: [id])
+  subClassificationId String?
+  subClassification   SubClassification? @relation(fields: [subClassificationId], references: [id])
+}
+
+model MigrationLog {
+  id        String   @id @default(uuid())
+  fileName  String
+  status    String
+  records   Int
+  errors    String?
+  createdAt DateTime @default(now())
+}
+
+// PHASE 3 - PURCHASE ORDERS
+model PurchaseOrder {
+  id               String       @id @default(uuid())
+  poNumber         String       @unique
+  rfqId            String?
+  rfq              RFQ?         @relation(fields: [rfqId], references: [id])
+  prId             String?
+  pr               Pr?          @relation(fields: [prId], references: [id])
+  vendorId         String
+  vendor           Vendor       @relation(fields: [vendorId], references: [id])
+  quotationId      String?
+  quotation        Quotation?   @relation(fields: [quotationId], references: [id])
+  totalAmount      Decimal
+  taxAmount        Decimal      @default(0)
+  deliveryAddress  String?
+  expectedDelivery DateTime?
+  status           POStatus     @default(DRAFT)
+  issuedAt         DateTime?
+  cancelReason     String?
+  lineItems        POLineItem[]
+  shipments        Shipment[]
+  grns             GRN[]
+  invoices         Invoice[]
+  poApprovals      PoApproval[]
+  pdfPath          String?
+  excelPath        String?
+  createdAt        DateTime     @default(now())
+  updatedAt        DateTime     @updatedAt
+}
+
+enum POStatus {
+  DRAFT
+  PENDING_APPROVAL
+  ISSUED
+  ACKNOWLEDGED
+  PARTIALLY_DELIVERED
+  DELIVERED
+  CANCELLED
+  CLOSED
+}
+
+model POLineItem {
+  id           String          @id @default(uuid())
+  poId         String
+  po           PurchaseOrder   @relation(fields: [poId], references: [id], onDelete: Cascade)
+  description  String
+  qty          Decimal
+  unit         String?
+  unitPrice    Decimal
+  totalPrice   Decimal
+  grnLineItems GRNLineItem[]
+}
+
+// PHASE 4 - SHIPMENT & GRN
+model Shipment {
+  id            String        @id @default(uuid())
+  poId          String
+  po            PurchaseOrder @relation(fields: [poId], references: [id])
+  trackingNumber String?
+  carrier       String?
+  dispatchedAt  DateTime?
+  expectedAt    DateTime?
+  status        ShipmentStatus @default(DISPATCHED)
+  grns          GRN[]
+  createdAt     DateTime      @default(now())
+}
+
+enum ShipmentStatus {
+  DISPATCHED
+  IN_TRANSIT
+  DELIVERED
+}
+
+model GRN {
+  id         String        @id @default(uuid())
+  grnNumber  String        @unique
+  poId       String
+  po         PurchaseOrder @relation(fields: [poId], references: [id])
+  shipmentId String?
+  shipment   Shipment?     @relation(fields: [shipmentId], references: [id])
+  receivedBy String?
+  receivedAt DateTime      @default(now())
+  remarks    String?
+  status     GRNStatus     @default(PARTIAL)
+  lineItems  GRNLineItem[]
+  invoices   Invoice[]
+  createdAt  DateTime      @default(now())
+}
+
+enum GRNStatus {
+  PARTIAL
+  COMPLETE
+}
+
+model GRNLineItem {
+  id            String     @id @default(uuid())
+  grnId         String
+  grn           GRN        @relation(fields: [grnId], references: [id], onDelete: Cascade)
+  poLineItemId  String
+  poLineItem    POLineItem @relation(fields: [poLineItemId], references: [id])
+  description   String
+  orderedQty    Decimal
+  receivedQty   Decimal
+  rejectedQty   Decimal    @default(0)
+  remarks       String?
+}
+
+// PHASE 5 - INVOICE & 3-WAY MATCH
+model Invoice {
+  id            String          @id @default(uuid())
+  invoiceNumber String          @unique
+  vendorId      String
+  vendor        Vendor          @relation(fields: [vendorId], references: [id])
+  poId          String
+  po            PurchaseOrder   @relation(fields: [poId], references: [id])
+  grnId         String?
+  grn           GRN?            @relation(fields: [grnId], references: [id])
+  amount        Decimal
+  taxAmount     Decimal         @default(0)
+  invoiceDate   DateTime
+  dueDate       DateTime?
+  uploadPath    String?
+  status        InvoiceStatus   @default(SUBMITTED)
+  lineItems     InvoiceLineItem[]
+  threeWayMatch ThreeWayMatch?
+  payments      Payment[]
+  createdAt     DateTime        @default(now())
+}
+
+enum InvoiceStatus {
+  SUBMITTED
+  MATCHED
+  DISPUTED
+  APPROVED_FOR_PAYMENT
+  PAID
+}
+
+model InvoiceLineItem {
+  id          String  @id @default(uuid())
+  invoiceId   String
+  invoice     Invoice @relation(fields: [invoiceId], references: [id], onDelete: Cascade)
+  description String
+  qty         Decimal
+  unitPrice   Decimal
+  totalPrice  Decimal
+}
+
+model ThreeWayMatch {
+  id                String      @id @default(uuid())
+  invoiceId         String      @unique
+  invoice           Invoice     @relation(fields: [invoiceId], references: [id])
+  poId              String
+  grnId             String
+  poAmount          Decimal
+  grnReceivedQtyPct Decimal     // % of ordered qty received
+  invoiceAmount     Decimal
+  result            MatchResult
+  discrepancyNotes  String?
+  checkedAt         DateTime    @default(now())
+}
+
+enum MatchResult {
+  MATCHED
+  PARTIAL
+  MISMATCH
+}
+
+// PHASE 6 - PAYMENT
+model Payment {
+  id              String      @id @default(uuid())
+  invoiceId       String
+  invoice         Invoice     @relation(fields: [invoiceId], references: [id])
+  amount          Decimal
+  paymentDate     DateTime
+  paymentMode     PaymentMode
+  referenceNumber String?
+  remarks         String?
+  createdAt       DateTime    @default(now())
+}
+
+enum PaymentMode {
+  NEFT
+  RTGS
+  CHEQUE
+  UPI
+  CASH
+}
+
+// --- PHASE: TECHNICAL SPECIFICATION -------------------------------------------
+
+model TechnicalSpecification {
+  id          String   @id @default(uuid())
+  prId        String   @unique
+  pr          Pr       @relation(fields: [prId], references: [id])
+  uploadedBy  String?
+  filePath    String?  // PDF/BOQ attachment path
+  notes       String?
+  tags        String[]
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// --- PHASE: TECHNICAL REVIEW ---------------------------------------------------
+
+enum PoRole {
+  PREPARER
+  STAGE1
+  STAGE2
+  STAGE3
+}
+
+enum TechStatus {
+  COMPLIANT
+  DEVIATION
+  NOT_FIT
+}
+
+model TechnicalReview {
+  id          String      @id @default(uuid())
+  rfqId       String
+  rfq         RFQ         @relation(fields: [rfqId], references: [id])
+  quotationId String
+  quotation   Quotation   @relation(fields: [quotationId], references: [id])
+  reviewedBy  String?
+  techStatus  TechStatus
+  remarks     String?
+  risks       String?
+  createdAt   DateTime    @default(now())
+
+  @@unique([rfqId, quotationId])
+}
+
+// --- PHASE: PO APPROVAL WORKFLOW -----------------------------------------------
+
+model PoApproval {
+  id          String         @id @default(uuid())
+  poId        String
+  po          PurchaseOrder  @relation(fields: [poId], references: [id], onDelete: Cascade)
+  approverId  String
+  approver    Approver       @relation(fields: [approverId], references: [id])
+  role        PoRole         @default(STAGE1)
+  token       String         @unique
+  status      ApprovalStatus @default(PENDING)
+  comments    String?
+  respondedAt DateTime?
+  createdAt   DateTime       @default(now())
+}
+
+// --- PHASE: USER AUTHENTICATION & RBAC ----------------------------------------
+
+enum UserTeam {
+  GENERAL
+  PR_TEAM
+  VENDOR_TEAM
+  PO_TEAM
+  GRN_TEAM
+  INVOICE_TEAM
+  BUDGET_TEAM
+}
+
+enum UserRole {
+  ADMIN
+  INDENTOR
+  APPROVER
+  PROCUREMENT
+  VIEWER
+}
+
+model User {
+  id                String    @id @default(uuid())
+  name              String
+  email             String    @unique
+  password          String    // bcrypt hashed
+  phoneNumber       String?
+  designation       String?
+  location          String?
+  employeeId        String?   @unique
+  role              UserRole  @default(INDENTOR)
+  team              UserTeam  @default(GENERAL)
+  department        String?
+  reportingManagerId String?
+  reportingManager   User?     @relation("ManagerSubordinates", fields: [reportingManagerId], references: [id])
+  subordinates       User[]    @relation("ManagerSubordinates")
+  signaturePath     String?   // Path to stored signature image
+  prs               Pr[]      @relation("UserPrs")
+  isActive          Boolean   @default(true)
+  lastLogin         DateTime?
+  createdAt         DateTime  @default(now())
+  updatedAt         DateTime  @updatedAt
+}
+
+// --- PHASE 7 - AUDIT LOGS ------------------------------------------------------
+
+model AuditLog {
+  id           String   @id @default(uuid())
+  action       String   // E.g., 'CREATE_PR', 'LOGIN', 'APPROVE_PO'
+  entityType   String?  // E.g., 'PR', 'PO', 'Quotation' 
+  entityId     String?  // The specific ID of the entity altered
+  actor        String?  // Who did it? e.g., userId or email
+  ipAddress    String?  // Action origin
+  details      Json?    // Extra contextual data payload
+  createdAt    DateTime @default(now())
+}
+
+// --- PHASE 8 - USER FEEDBACK & BUG REPORTING -----------------------------------
+
+model Feedback {
+  id          String   @id @default(uuid())
+  type        String   // 'BUG' or 'FEEDBACK'
+  subject     String
+  description String
+  priority    String?  // 'LOW', 'MEDIUM', 'HIGH', 'CRITICAL'
+  status      String   @default("OPEN")
+  submittedBy String   // Email or Name of the user submitting
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
+// --- PHASE 9 - NOTIFICATIONS ----------------------------------------------------
+
+model Notification {
+  id          String   @id @default(uuid())
+  type        String   // 'URGENT', 'WARNING', 'INFO', 'BUG_REPORT'
+  category    String   // 'Approval', 'Budget', 'Procurement', 'System', 'Feedback'
+  title       String
+  message     String
+  read        Boolean  @default(false)
+  userId      String?  // Optional: Null means global/admin notification
+  link        String?  // Optional: URL to redirect user when clicked
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+}
+
