@@ -4,17 +4,18 @@ import api from '../api/axios';
 import { TEAM_OPTIONS } from '../config/permissions';
 
 const roleBadge = {
-    ADMIN: { bg: '#fee2e2', color: '#dc2626' },
-    MANAGER: { bg: '#dbeafe', color: '#1d4ed8' },
-    OFFICER: { bg: '#d1fae5', color: '#059669' },
-    VIEWER: { bg: '#f3f4f6', color: '#6b7280' },
+    ADMIN:       { bg: '#fee2e2', color: '#dc2626' },
+    APPROVER:    { bg: '#dbeafe', color: '#1d4ed8' },
+    INDENTOR:    { bg: '#d1fae5', color: '#059669' },
+    PROCUREMENT: { bg: '#ede9fe', color: '#7c3aed' },
+    VIEWER:      { bg: '#f3f4f6', color: '#6b7280' },
 };
 
 const UserManagement = () => {
     const [users, setUsers] = useState([]);
     const [loading, setLoading] = useState(true);
     const [showCreate, setShowCreate] = useState(false);
-    const [form, setForm] = useState({ name: '', email: '', password: '', role: 'OFFICER', team: 'GENERAL', department: '' });
+    const [form, setForm] = useState({ name: '', email: '', password: '', role: 'INDENTOR', team: 'GENERAL', department: '' });
     const [saving, setSaving] = useState(false);
     const [error, setError] = useState('');
 
@@ -113,7 +114,7 @@ const UserManagement = () => {
                                                 className="text-[10px] font-black px-2 py-1 rounded-full border-0 outline-none cursor-pointer"
                                                 style={{ background: rb.bg, color: rb.color }}
                                             >
-                                                {['ADMIN', 'MANAGER', 'OFFICER', 'VIEWER'].map(r => (
+                                    {['ADMIN', 'APPROVER', 'INDENTOR', 'PROCUREMENT', 'VIEWER'].map(r => (
                                                     <option key={r} value={r}>{r}</option>
                                                 ))}
                                             </select>
@@ -186,7 +187,7 @@ const UserManagement = () => {
                                     value={form.role}
                                     onChange={(e) => setForm({ ...form, role: e.target.value })}
                                 >
-                                    {['ADMIN', 'MANAGER', 'OFFICER', 'VIEWER'].map(r => (
+                                    {['ADMIN', 'APPROVER', 'INDENTOR', 'PROCUREMENT', 'VIEWER'].map(r => (
                                         <option key={r} value={r}>{r}</option>
                                     ))}
                                 </select>

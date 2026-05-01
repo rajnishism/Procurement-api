@@ -1,11 +1,13 @@
 @import "tailwindcss";
 
+/* ============================================
+   EXISTING ANIMATIONS
+   ============================================ */
 @keyframes slide-in {
     from {
         opacity: 0;
         transform: translateX(110%);
     }
-
     to {
         opacity: 1;
         transform: translateX(0);
@@ -14,4 +16,281 @@
 
 .animate-slide-in {
     animation: slide-in 0.3s cubic-bezier(0.16, 1, 0.3, 1) forwards;
+}
+
+/* ============================================
+   POST-LOGIN REVEAL ANIMATION SYSTEM
+   ============================================ */
+
+/* Wrapper — fills the screen, contains curtains + content */
+.login-transition-wrapper {
+    position: fixed;
+    inset: 0;
+    z-index: 9999;
+    overflow: hidden;
+}
+
+/* Content layer sits above curtains */
+.login-content-layer {
+    position: relative;
+    z-index: 2;
+    transition: opacity 0.6s ease, transform 0.6s ease;
+}
+
+.login-content-layer--hidden {
+    opacity: 0;
+    transform: scale(1.08);
+    pointer-events: none;
+}
+
+/* Overlay center content (success state inside the curtain overlay) */
+.login-overlay-center {
+    position: fixed;
+    inset: 0;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    transition: opacity 0.5s ease, transform 0.5s ease;
+}
+
+.login-overlay-center--hidden {
+    opacity: 0;
+    transform: scale(0.95);
+    pointer-events: none;
+}
+
+/* Wrapper fade-out when done */
+.login-transition-wrapper--fading {
+    opacity: 0;
+    transition: opacity 0.4s ease;
+    pointer-events: none;
+}
+
+/* ── CURTAIN PANELS ── */
+.login-curtain {
+    position: fixed;
+    top: 0;
+    width: 50%;
+    height: 100%;
+    z-index: 1;
+    transition: transform 0.9s cubic-bezier(0.77, 0, 0.175, 1);
+    will-change: transform;
+}
+
+.login-curtain--left {
+    left: 0;
+    background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 50%, #1e293b 100%);
+    transform: translateX(0);
+}
+
+.login-curtain--right {
+    right: 0;
+    background: linear-gradient(225deg, #0f172a 0%, #1e3a5f 50%, #1e293b 100%);
+    transform: translateX(0);
+}
+
+.login-curtain--left.login-curtain--open {
+    transform: translateX(-105%);
+}
+
+.login-curtain--right.login-curtain--open {
+    transform: translateX(105%);
+}
+
+/* Decorative edge on curtains */
+.login-curtain--left::after,
+.login-curtain--right::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    width: 2px;
+    height: 100%;
+    background: linear-gradient(to bottom, transparent, rgba(59, 130, 246, 0.5), transparent);
+    opacity: 0;
+    transition: opacity 0.3s ease;
+}
+
+.login-curtain--left::after {
+    right: 0;
+}
+
+.login-curtain--right::after {
+    left: 0;
+}
+
+.login-curtain--left.login-curtain--open::after,
+.login-curtain--right.login-curtain--open::after {
+    opacity: 1;
+}
+
+/* ── FLOATING PARTICLES ── */
+.login-particle {
+    position: absolute;
+    border-radius: 50%;
+    background: rgba(96, 165, 250, 0.4);
+    animation: login-particle-float linear infinite;
+    pointer-events: none;
+}
+
+@keyframes login-particle-float {
+    0%, 100% {
+        transform: translateY(0) scale(1);
+        opacity: 0;
+    }
+    10% {
+        opacity: 0.6;
+    }
+    50% {
+        transform: translateY(-40px) scale(1.5);
+        opacity: 0.3;
+    }
+    90% {
+        opacity: 0.1;
+    }
+}
+
+/* ── ICON PULSE (while authenticating) ── */
+.login-icon-pulse {
+    animation: login-icon-pulse 1.2s ease-in-out infinite;
+}
+
+@keyframes login-icon-pulse {
+    0%, 100% {
+        box-shadow: 0 0 0 0 rgba(59, 130, 246, 0.4);
+        transform: scale(1);
+    }
+    50% {
+        box-shadow: 0 0 0 16px rgba(59, 130, 246, 0);
+        transform: scale(1.05);
+    }
+}
+
+/* ── ERROR SHAKE ── */
+.login-shake {
+    animation: login-shake 0.5s cubic-bezier(0.36, 0.07, 0.19, 0.97) both;
+}
+
+@keyframes login-shake {
+    10%, 90%  { transform: translateX(-1px); }
+    20%, 80%  { transform: translateX(2px); }
+    30%, 50%, 70% { transform: translateX(-4px); }
+    40%, 60%  { transform: translateX(4px); }
+}
+
+/* ── SUCCESS RING ── */
+.login-success-ring {
+    position: relative;
+    width: 96px;
+    height: 96px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.login-success-ring::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 50%;
+    border: 3px solid transparent;
+    border-top-color: #34d399;
+    border-right-color: #34d399;
+    animation: login-ring-spin 0.8s ease-out forwards;
+}
+
+.login-success-ring::after {
+    content: '';
+    position: absolute;
+    inset: -8px;
+    border-radius: 50%;
+    background: radial-gradient(circle, rgba(52, 211, 153, 0.15) 0%, transparent 70%);
+    animation: login-ring-glow 1.5s ease-in-out infinite;
+}
+
+@keyframes login-ring-spin {
+    0% {
+        transform: rotate(0deg);
+        border-top-color: transparent;
+        border-right-color: transparent;
+    }
+    30% {
+        border-top-color: #34d399;
+    }
+    60% {
+        border-right-color: #34d399;
+    }
+    100% {
+        transform: rotate(360deg);
+        border-color: #34d399;
+    }
+}
+
+@keyframes login-ring-glow {
+    0%, 100% {
+        transform: scale(1);
+        opacity: 0.5;
+    }
+    50% {
+        transform: scale(1.2);
+        opacity: 1;
+    }
+}
+
+.login-success-check {
+    color: #34d399;
+    animation: login-check-pop 0.5s cubic-bezier(0.175, 0.885, 0.32, 1.275) 0.3s both;
+}
+
+@keyframes login-check-pop {
+    0% {
+        transform: scale(0) rotate(-30deg);
+        opacity: 0;
+    }
+    60% {
+        transform: scale(1.2) rotate(5deg);
+    }
+    100% {
+        transform: scale(1) rotate(0deg);
+        opacity: 1;
+    }
+}
+
+/* ── PROGRESS BAR ── */
+.login-progress-bar {
+    animation: login-progress 1.3s cubic-bezier(0.4, 0, 0.2, 1) forwards;
+}
+
+@keyframes login-progress {
+    0% {
+        width: 0;
+    }
+    30% {
+        width: 35%;
+    }
+    60% {
+        width: 70%;
+    }
+    100% {
+        width: 100%;
+    }
+}
+
+/* ── SCROLLBAR STYLING ── */
+.custom-scrollbar::-webkit-scrollbar {
+    width: 4px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-track {
+    background: transparent;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb {
+    background: rgba(148, 163, 184, 0.3);
+    border-radius: 9999px;
+}
+
+.custom-scrollbar::-webkit-scrollbar-thumb:hover {
+    background: rgba(148, 163, 184, 0.5);
 }

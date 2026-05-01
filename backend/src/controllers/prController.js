@@ -7,10 +7,11 @@ import path from 'path';
 import fs from 'fs';
 import { v4 as uuidv4 } from 'uuid';
 import { generateExcelPR, updateExcelFile } from '../services/generateTemplate.js';
-import { sendAiPrGeneratedNotification, sendApprovalEmail, sendIndentorConfirmationEmail } from '../services/emailService.js';
+import { sendAiPrGeneratedNotification, sendApprovalEmail, sendIndentorConfirmationEmail, sendInAppApprovalEmail } from '../services/emailService.js';
 import { ensureDepartmentExists, ensureWbsExists } from '../utils/wbsSync.js';
 import { wbsConfig } from '../config/wbsCodes.js';
 import * as storageService from '../services/storageService.js';
+import { excelToPDF } from '../services/exportExcelToPdf.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -95,6 +96,7 @@ export const getPrById = async (req, res) => {
         const pr = await prisma.pr.findUnique({
             where: { id, deletedAt: null },
             include: {
+                createdBy: { select: { id: true, name: true, email: true, designation: true } },
                 department: true,
                 allocations: {
                     include: { budgetHead: true, subClassification: true }
@@ -117,7 +119,22 @@ export const getPrById = async (req, res) => {
             }
         });
         if (!pr) return res.status(404).json({ error: 'PR not found' });
-        res.json(pr);
+
+        // Also fetch the modern in-app ApprovalRequest for this PR
+        const approvalRequest = await prisma.approvalRequest.findFirst({
+            where: { entityId: id, requestType: 'PR' },
+            include: {
+                steps: {
+                    include: {
+                        approver: { select: { id: true, name: true, email: true, designation: true, signaturePath: true } }
+                    },
+                    orderBy: { level: 'asc' }
+                },
+                createdBy: { select: { id: true, name: true } }
+            }
+        });
+
+        res.json({ ...pr, approvalRequest: approvalRequest || null });
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -150,7 +167,7 @@ export const createPr = async (req, res) => {
                     departmentId,
                     totalValue,
                     wbsCode,
-                    indentor: indentor || null,
+                    indentor: indentor || req.user?.name || null,
                     approver: approver || null,
                     verifiedBy: verifiedBy || null,
                     pdfPath: pdfPath || null,
@@ -230,34 +247,79 @@ export const createPr = async (req, res) => {
 
 export const saveAiPr = async (req, res) => {
     try {
-        const prData = req.body;
+        let prData = req.body;
+        // Extracted from formData if file uploaded directly 
+        if (req.body.data) {
+            prData = JSON.parse(req.body.data);
+        }
+        
         if (!prData) return res.status(400).json({ error: 'No PR data received.' });
 
         console.log(`[Save AI PR] Initiating persistence for Indent: ${prData.indentNo}`);
         
         const prNumber = prData.indentNo || `AI-PR-${Date.now()}`;
         const prDir = storageService.getPrDir(prNumber);
-        storageService.ensureDir(prDir);
+        const dirs = storageService.ensureEntityDirs(prDir);
 
-        // 1. Generate the Excel PR template internally in the PR folder
+        // 1. Generate the Excel PR template into the PR's versions/ folder
         console.log("[Save AI PR] Step 1: Generating background Excel template...");
-        const fullExcelPath = await generateExcelPR(prData, [], prDir);
-        const excelFilename = path.basename(fullExcelPath);
-        console.log(`[Save AI PR] Excel generated: ${excelFilename} at ${fullExcelPath}`);
+        const fullExcelPath = await generateExcelPR(prData, [], dirs.versions);
+        // Rename the generated file to follow the naming convention
+        const version = storageService.nextVersion(prDir);
+        const excelCanonical = storageService.buildFileName(prNumber, 'indent-form', version, '.xlsx');
+        const excelFinalPath = path.join(dirs.versions, excelCanonical);
+        if (fullExcelPath !== excelFinalPath) fs.renameSync(fullExcelPath, excelFinalPath);
+        const excelRelPath = path.relative(storageService.UPLOADS_ROOT, excelFinalPath);
+        console.log(`[Save AI PR] Excel generated: ${excelCanonical}`);
 
-        // 1a. Move the source quotation to the PR folder
+        // 1b. Convert Excel to PDF → save as preview_main.pdf in preview/ folder
+        let templatePdfRelPath = null;
+        try {
+            const rawPdfPath = await excelToPDF(excelFinalPath, dirs.preview);
+            const previewDest = path.join(dirs.preview, 'preview_main.pdf');
+            if (rawPdfPath !== previewDest) fs.renameSync(rawPdfPath, previewDest);
+            templatePdfRelPath = path.relative(storageService.UPLOADS_ROOT, previewDest);
+            console.log(`[Save AI PR] PDF preview generated: preview_main.pdf`);
+        } catch (pdfErr) {
+            console.warn('[Save AI PR] PDF preview generation failed (non-fatal):', pdfErr.message);
+        }
+
+        let mainFile = req.files && req.files['file'] ? req.files['file'][0] : null;
         let finalPdfPath = prData.pdfPath;
-        if (prData.pdfPath) {
+        if (mainFile) {
+            // An attachment was uploaded directly with the submission
+            const quoteExt = path.extname(mainFile.originalname);
+            const quoteName = storageService.buildFileName(prNumber, 'attachment', 1, quoteExt);
+            const movedPath = storageService.moveToAttachments(mainFile.path, prDir, quoteName);
+            if (movedPath) {
+                finalPdfPath = movedPath;
+                console.log(`[Save AI PR] Direct attachment saved to attachments/: ${quoteName}`);
+            }
+        } else if (prData.pdfPath) {
             const tempQuotePath = path.join(__dirname, '../../uploads/temp', prData.pdfPath);
             if (fs.existsSync(tempQuotePath)) {
-                const movedPath = storageService.moveToEntityFolder(tempQuotePath, 'PR', prNumber, prData.pdfPath);
+                const quoteExt = path.extname(prData.pdfPath);
+                const quoteName = storageService.buildFileName(prNumber, 'vendor-quote', 1, quoteExt);
+                const movedPath = storageService.moveToAttachments(tempQuotePath, prDir, quoteName);
                 if (movedPath) {
-                    finalPdfPath = path.basename(movedPath); // We store just filename if we know it's in the PR folder
-                    console.log(`[Save AI PR] Source quote moved to PR folder: ${finalPdfPath}`);
+                    finalPdfPath = movedPath;
+                    console.log(`[Save AI PR] Source quote moved to attachments/: ${quoteName}`);
                 }
             } else {
                 console.warn(`[Save AI PR] Temp quote not found at: ${tempQuotePath}`);
             }
+        }
+
+        // Process Additional Files
+        let additionalFilesPaths = [];
+        if (req.files && req.files['additionalFiles']) {
+            req.files['additionalFiles'].forEach((f, idx) => {
+                const ext = path.extname(f.originalname);
+                const aName = storageService.buildFileName(prNumber, `supporting-doc-${idx+1}`, 1, ext);
+                const mPath = storageService.moveToAttachments(f.path, prDir, aName);
+                if (mPath) additionalFilesPaths.push(mPath);
+            });
+            console.log(`[Save AI PR] Saved ${additionalFilesPaths.length} additional files.`);
         }
 
         // 2. Resolve Department ID from config / DB
@@ -309,8 +371,10 @@ export const saveAiPr = async (req, res) => {
                 wbsCode: prData.items?.[0]?.wbs || prData.wbs || null,
                 area: prData.items?.[0]?.area || prData.area || null,
                 status: 'PENDING',
-                pdfPath: finalPdfPath,   // Original Quotation (now in uploads/prs/{prNumber})
-                excelPath: excelFilename,  // Generated Excel (now in uploads/prs/{prNumber})
+                pdfPath: finalPdfPath,        // relative: PR-0001/attachments/PR-0001_vendor-quote_v1_…pdf
+                excelPath: excelRelPath,     // relative: PR-0001/versions/PR-0001_indent-form_v1_….xlsx
+                templatePdfPath: templatePdfRelPath, // relative: PR-0001/preview/preview_main.pdf
+                additionalFiles: additionalFilesPaths,
                 lineItems: prData.items || [],
                 createdById: req.user?.id || null,
             }
@@ -325,69 +389,80 @@ export const saveAiPr = async (req, res) => {
             { email: prData.finalApproverS3, role: 'STAGE3' } // Final Approver
         ];
 
-        console.log(`[Save AI PR] Step 5: Initiating sequential workflow...`);
+        console.log(`[Save AI PR] Step 5: Initiating in-app sequential workflow...`);
+
+        const stepsData = [];
+        let level = 1;
 
         for (let i = 0; i < workflowRoles.length; i++) {
             const config = workflowRoles[i];
             if (!config.email) continue;
 
-            // Find or Register Person
-            const person = await prisma.approver.upsert({
-                where: { email: config.email.toLowerCase() },
-                update: {}, 
-                create: {
-                    email: config.email.toLowerCase(),
-                    name: config.email.split('@')[0], 
-                    departmentId: departmentId
-                }
+            // Strict dependency on User table for ApprovalRequest
+            const user = await prisma.user.findUnique({
+                where: { email: config.email.toLowerCase() }
             });
 
-            const token = uuidv4();
+            if (user) {
+                stepsData.push({
+                    approverId: user.id,
+                    level: level++,
+                    approvalMode: 'ANY',
+                });
+            } else {
+                console.warn(`[Save AI PR] User not found for email ${config.email}, skipping role ${config.role}`);
+            }
+        }
+
+        if (stepsData.length > 0) {
+            const minLevel = 1;
             
-            // Create Approval Record (All are created, but only first/indentor get emails now)
-            await prisma.prApproval.create({
+            const approvalRequest = await prisma.approvalRequest.create({
                 data: {
-                    prId: newPr.id,
-                    approverId: person.id,
-                    role: config.role,
-                    token,
-                    status: 'PENDING'
-                }
+                    requestId: newPr.prNumber,
+                    requestType: 'PR',
+                    entityId: newPr.id,
+                    title: `PR — ${newPr.description ? newPr.description.substring(0, 50) : newPr.prNumber}`,
+                    status: 'PENDING',
+                    createdById: req.user?.id || null,
+                    steps: {
+                        create: stepsData.map(s => ({
+                            approverId: s.approverId,
+                            level: s.level,
+                            approvalMode: s.approvalMode,
+                            status: s.level === minLevel ? 'PENDING' : 'WAITING'
+                        }))
+                    }
+                },
+                include: { steps: { include: { approver: true } } }
             });
 
-            // Prepare Attachments for approval mails
-            const attachments = [];
-            const excelFile = path.join(prDir, excelFilename);
-            if (fs.existsSync(excelFile)) {
-                attachments.push({ filename: `PR-Draft-${newPr.prNumber}.xlsx`, path: excelFile });
-            }
-            if (newPr.pdfPath) {
-                const quoteFile = path.join(prDir, newPr.pdfPath);
-                if (fs.existsSync(quoteFile)) {
-                    attachments.push({ filename: `Original-Quote-${newPr.prNumber}${path.extname(newPr.pdfPath)}`, path: quoteFile });
+            // Fire generic notification and email for the first approver
+            for (const step of approvalRequest.steps.filter((s) => s.level === minLevel)) {
+                await prisma.notification.create({
+                    data: {
+                        userId: step.approverId,
+                        type: 'INFO',
+                        title: 'Action Required — Approval Pending',
+                        message: `PR (${newPr.prNumber}) is awaiting your approval.`,
+                        link: `/approvals/${approvalRequest.id}`,
+                    },
+                }).catch(() => {});
+                
+                if (step.approver?.email) {
+                    sendInAppApprovalEmail({
+                        approverName: step.approver.name,
+                        approverEmail: step.approver.email,
+                        requestType: approvalRequest.requestType,
+                        requestId: approvalRequest.requestId,
+                        title: approvalRequest.title,
+                        appUrl: `${process.env.APP_URL || 'http://localhost:5173'}/approvals/${approvalRequest.id}`,
+                    }).catch((err) => console.error('Failed to send approval email:', err));
                 }
             }
-
-            // Logic: 
-            // - If INDENTOR: Send Verification Request immediately.
-            // - Others: No email until triggered by previous stage.
-            
-            if (config.role === 'INDENTOR') {
-                sendIndentorConfirmationEmail({
-                    indentorName: person.name,
-                    indentorEmail: person.email,
-                    prNumber: newPr.prNumber,
-                    department: prData.department || 'General',
-                    totalValue: Number(newPr.totalValue),
-                    description: newPr.description,
-                    token,
-                    attachments
-                }).catch(err => console.error(`[Email] Indentor verification failed:`, err.message));
-            } else if (config.role === 'STAGE1') {
-                // We no longer send Stage 1 email immediately. 
-                // It will be sent when INDENTOR clicks "Confirm".
-                console.log(`[Save AI PR] Deferring Stage 1 email until Indentor confirmation.`);
-            }
+            console.log(`[Save AI PR] Created ApprovalRequest ${approvalRequest.id} with ${stepsData.length} steps.`);
+        } else {
+            console.warn(`[Save AI PR] No valid registered users found in workflow roles. Approval Request skipped.`);
         }
 
         // 5. Send generic notification alert to rajnishism24@gmail.com
@@ -532,7 +607,24 @@ export const getPrs = async (req, res) => {
             },
             orderBy: { createdAt: 'desc' }
         });
-        res.json(prs);
+
+        // Fetch approval requests for these PRs to allow frontend derivation
+        const prIds = prs.map(p => p.id);
+        const approvalRequests = await prisma.approvalRequest.findMany({
+            where: {
+                entityId: { in: prIds },
+                requestType: 'PR'
+            },
+            include: { steps: true }
+        });
+
+        // Map them back to the PRs
+        const prsWithApprovals = prs.map(pr => {
+            const req = approvalRequests.find(ar => ar.entityId === pr.id);
+            return { ...pr, approvalRequest: req || null };
+        });
+
+        res.json(prsWithApprovals);
     } catch (error) {
         res.status(500).json({ error: error.message });
     }
@@ -545,8 +637,7 @@ export const updatePrExcel = async (req, res) => {
         const pr = await prisma.pr.findUnique({ where: { id } });
         if (!pr || !pr.excelPath) return res.status(404).json({ error: 'PR or Excel file not found' });
 
-        const prDir = storageService.getPrDir(pr.prNumber);
-        const fullPath = path.join(prDir, pr.excelPath);
+        const fullPath = storageService.resolveUploadPath(pr.excelPath);
         await updateExcelFile(fullPath, updates);
 
         res.json({ message: 'Excel updated successfully' });

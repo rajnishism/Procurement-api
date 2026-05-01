@@ -2,35 +2,48 @@ import axios from 'axios';
 
 const api = axios.create({
     baseURL: '/api',
+    withCredentials: true,
     headers: {
-        'Content-Type': 'application/json',
         'ngrok-skip-browser-warning': 'true',
     },
 });
 
 // Request interceptor — attach JWT token
+// Request interceptor — can be used for other purposes if needed
 api.interceptors.request.use(
-    (config) => {
-        const token = localStorage.getItem('token');
-        if (token) {
-            config.headers.Authorization = `Bearer ${token}`;
-        }
-        return config;
-    },
+    (config) => config,
     (error) => Promise.reject(error)
 );
 
-// Response interceptor — handle 401 (redirect to login)
+// Response interceptor — handle 401 (redirect to login) and global errors
+let reportGlobalError = null;
+
+export const setupErrorInterceptor = (reportErrorFn) => {
+    reportGlobalError = reportErrorFn;
+};
+
 api.interceptors.response.use(
     (response) => response,
     (error) => {
-        if (error.response?.status === 401) {
-            localStorage.removeItem('token');
-            // Only redirect if not already on login page
+        const status = error.response?.status;
+        
+        if (status === 401) {
+            // Token is invalid/expired
             if (window.location.pathname !== '/login') {
                 window.location.href = '/login';
             }
+        } else if (status >= 500 || error.code === 'ERR_NETWORK') {
+            // Trigger global error UI for 500s or network failures
+            if (reportGlobalError) {
+                const message = error.response?.data?.error || error.message || 'Unknown Server Error';
+                reportGlobalError(message, {
+                    url: error.config?.url,
+                    method: error.config?.method,
+                    status: status
+                });
+            }
         }
+        
         return Promise.reject(error);
     }
 );

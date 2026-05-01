@@ -1,9 +1,12 @@
 import prisma from '../utils/db.js';
 import { v4 as uuidv4 } from 'uuid';
 import path from 'path';
+import fs from 'fs';
 import { deductBudgetForPO } from '../services/budgetService.js';
 import { sendPoApprovalEmail } from '../services/emailService.js';
 import * as storageService from '../services/storageService.js';
+import { excelToPDF } from '../services/exportExcelToPdf.js';
+import { parsePO } from '../services/poParser.js';
 
 const generatePONumber = async () => {
     const count = await prisma.purchaseOrder.count();
@@ -112,10 +115,27 @@ export const generatePOExcel = async (req, res) => {
 
         const poNum = poData.po_number || await generatePONumber();
 
-        // ── 1. GENERATE EXCEL FIRST ──────────────────────────────────────────
+        // ── 1. GENERATE EXCEL into the PO's versions/ folder ────────────────
         const poDir = storageService.getPoDir(poNum);
-        const filePath = await generateExcelPO(poData, poDir);
-        const fileName = path.basename(filePath);
+        const dirs = storageService.ensureEntityDirs(poDir);
+        const rawExcelPath = await generateExcelPO(poData, dirs.versions);
+        // Rename to canonical convention
+        const poVersion = storageService.nextVersion(poDir);
+        const excelCanonical = storageService.buildFileName(poNum, 'purchase-order', poVersion, '.xlsx');
+        const excelFinalPath = path.join(dirs.versions, excelCanonical);
+        if (rawExcelPath !== excelFinalPath) fs.renameSync(rawExcelPath, excelFinalPath);
+        const excelRelPath = path.relative(storageService.UPLOADS_ROOT, excelFinalPath);
+
+        // ── 1a. CONVERT TO PDF → preview_main.pdf in preview/ folder ────────
+        let templatePdfRelPath = null;
+        try {
+            const rawPdfPath = await excelToPDF(excelFinalPath, dirs.preview);
+            const previewDest = path.join(dirs.preview, 'preview_main.pdf');
+            if (rawPdfPath !== previewDest) fs.renameSync(rawPdfPath, previewDest);
+            templatePdfRelPath = path.relative(storageService.UPLOADS_ROOT, previewDest);
+        } catch (pdfErr) {
+            console.warn('[PO Generator] PDF preview generation failed (non-fatal):', pdfErr.message);
+        }
 
         // ── 2. PERSIST OR UPDATE IN DATABASE ─────────────────────────────────
         if (!poId) {
@@ -130,8 +150,19 @@ export const generatePOExcel = async (req, res) => {
             } else if (poData.vendor_details) {
                 vendor = await prisma.vendor.findFirst({ where: { name: poData.vendor_details.split('\n')[0] } });
             }
-            if (!vendor) {
-                vendor = await prisma.vendor.findFirst();
+            if (!vendor && poData.vendor_details) {
+                const vendorName = poData.vendor_details.split('\n')[0].substring(0, 50).trim() || 'UNKNOWN VENDOR';
+                const ts = Date.now();
+                vendor = await prisma.vendor.create({
+                    data: {
+                        name: vendorName,
+                        code: `VND-AUTO-${ts}`,
+                        email: `auto-${ts}@example.com`,
+                        address: poData.vendor_details,
+                    }
+                });
+            } else if (!vendor) {
+                return res.status(400).json({ error: 'No active vendor found in the system registry. Please add a vendor before creating a PO.' });
             }
 
             const poNum = poData.po_number || await generatePONumber();
@@ -146,7 +177,8 @@ export const generatePOExcel = async (req, res) => {
                     vendorId: vendor.id,
                     rfqId: null,      // Optional linkage
                     quotationId: null,
-                    excelPath: fileName,
+                    excelPath: excelRelPath,
+                    templatePdfPath: templatePdfRelPath,
                     lineItems: {
                         create: (poData.po_items || []).map(item => ({
                             description: item.description,
@@ -162,7 +194,7 @@ export const generatePOExcel = async (req, res) => {
         } else if (poId) {
             dbPO = await prisma.purchaseOrder.update({
                 where: { id: poId },
-                data: { excelPath: fileName, status: 'DRAFT' } 
+                data: { excelPath: excelRelPath, templatePdfPath: templatePdfRelPath, status: 'DRAFT' }
             });
         }
 
@@ -174,13 +206,15 @@ export const generatePOExcel = async (req, res) => {
         }
 
         // Return JSON so frontend can proceed to "Select Approvers" step
-        const sanitizedPo = dbPO.poNumber.replace(/\//g, '-');
         res.status(200).json({
             message: 'PO Excel successfully generated and saved.',
             poId,
             poNumber: dbPO.poNumber,
-            excelPath: fileName,
-            blobUrl: `/api/uploads/pos/${sanitizedPo}/${fileName}` // Frontend can fetch this
+            excelPath: excelRelPath,
+            templatePdfPath: templatePdfRelPath,
+            blobUrl: templatePdfRelPath
+                ? `/api/uploads/${templatePdfRelPath}`
+                : `/api/uploads/${excelRelPath}`
         });
     } catch (error) {
         console.error('[PO Generator] Error:', error);
@@ -232,6 +266,32 @@ export const cancelPO = async (req, res) => {
         });
         res.json(po);
     } catch (error) {
+        res.status(500).json({ error: error.message });
+    }
+};
+
+/**
+ * POST /api/purchase-orders/parse
+ * Accepts an Excel file and returns parsed PO data.
+ */
+export const parsePOFile = async (req, res) => {
+    try {
+        if (!req.file) {
+            return res.status(400).json({ error: 'No file uploaded' });
+        }
+
+        const data = parsePO(req.file.path);
+
+        // Optional: Clean up temp file after parsing
+        try {
+            fs.unlinkSync(req.file.path);
+        } catch (unlinkErr) {
+            console.warn('[PO Parser] Could not delete temp file:', unlinkErr.message);
+        }
+
+        res.json(data);
+    } catch (error) {
+        console.error('[PO Parser] Extraction Failed:', error);
         res.status(500).json({ error: error.message });
     }
 };

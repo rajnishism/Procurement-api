@@ -635,6 +635,128 @@ export const sendFeedbackNotificationToAdminEmail = async ({ type, subject, desc
   return info;
 };
 
+/**
+ * Send an email for a generic in-app approval request (e.g., NFA)
+ */
+export const sendInAppApprovalEmail = async ({ approverName, approverEmail, requestType, requestId, title, appUrl }) => {
+  const html = `
+    <div style="font-family:sans-serif;padding:24px;max-width:600px;border:1px solid #e5e7eb;border-radius:12px;">
+      <h2 style="color:#1a56db;">✅ Approval Required</h2>
+      <p>Dear <strong>${approverName}</strong>, the following <strong>${requestType}</strong> requires your authorization:</p>
+      <div style="background:#f9fafb;border:1px solid #e5e7eb;padding:16px;border-radius:8px;margin:16px 0;">
+        <p style="margin:4px 0;"><strong>Request ID:</strong> ${requestId}</p>
+        <p style="margin:4px 0;"><strong>Title:</strong> ${title}</p>
+      </div>
+      <p style="margin:16px 0 0;font-size:13px;color:#6b7280;">
+        Please log in to the Procurement Management System to review and provide your approval.
+      </p>
+      ${appUrl ? `<p style="margin-top: 20px;"><a href="${appUrl}" style="display:inline-block;background:#1a56db;color:#fff;text-decoration:none;padding:14px 28px;border-radius:8px;font-weight:700;">View Request</a></p>` : ''}
+    </div>
+  `.trim();
+
+  const info = await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to: approverEmail,
+    subject: `Approval Required: ${requestType} ${requestId}`,
+    html,
+  });
+
+  console.log(`[Email] In-App Approval request sent to ${approverEmail}: ${info.messageId}`);
+  return info;
+};
+
+/**
+ * Send a password reset OTP to the user.
+ */
+export const sendOtpEmail = async ({ userName, userEmail, otp }) => {
+  const html = `
+<!DOCTYPE html>
+<html lang="en">
+<head><meta charset="UTF-8"><title>Password Reset OTP</title></head>
+<body style="margin:0;padding:0;background:#f0f4f8;font-family:'Segoe UI',Arial,sans-serif;">
+  <table width="100%" cellpadding="0" cellspacing="0" style="background:#f0f4f8;padding:40px 0;">
+    <tr><td>
+      <table width="600" align="center" cellpadding="0" cellspacing="0"
+             style="background:#fff;border-radius:12px;overflow:hidden;box-shadow:0 4px 24px rgba(0,0,0,0.08);">
+
+        <!-- Header -->
+        <tr>
+          <td style="background:linear-gradient(135deg,#1a56db,#1e429f);padding:32px 40px;">
+            <h1 style="color:#fff;margin:0;font-size:22px;font-weight:700;letter-spacing:-0.5px;">
+              🔐 Password Reset
+            </h1>
+            <p style="color:rgba(255,255,255,0.75);margin:6px 0 0;font-size:13px;">
+              A reset was requested for your Procurement OS account
+            </p>
+          </td>
+        </tr>
+
+        <!-- Body -->
+        <tr>
+          <td style="padding:32px 40px 0;">
+            <p style="margin:0;font-size:15px;color:#374151;">Dear <strong>${userName}</strong>,</p>
+            <p style="margin:12px 0 0;font-size:14px;color:#6b7280;line-height:1.6;">
+              We received a request to reset your password. Use the OTP code below to proceed.
+              This code is valid for <strong>10 minutes</strong>.
+            </p>
+          </td>
+        </tr>
+
+        <!-- OTP Block -->
+        <tr>
+          <td style="padding:32px 40px;">
+            <div style="background:#f8fafc;border:2px dashed #1a56db;border-radius:12px;padding:24px;text-align:center;">
+              <p style="margin:0 0 8px;font-size:11px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:2px;">
+                Your One-Time Password
+              </p>
+              <p style="margin:0;font-size:48px;font-weight:900;letter-spacing:12px;color:#1a56db;font-family:monospace;">
+                ${otp}
+              </p>
+              <p style="margin:12px 0 0;font-size:12px;color:#9ca3af;">
+                ⏱ Expires in 10 minutes
+              </p>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Warning -->
+        <tr>
+          <td style="padding:0 40px 32px;">
+            <div style="background:#fffbeb;border:1px solid #fde68a;border-radius:8px;padding:14px 18px;">
+              <p style="margin:0;font-size:13px;color:#92400e;line-height:1.5;">
+                ⚠️ <strong>Did not request this?</strong> If you did not request a password reset,
+                please ignore this email. Your account remains secure.
+              </p>
+            </div>
+          </td>
+        </tr>
+
+        <!-- Footer -->
+        <tr>
+          <td style="background:#f8fafc;border-top:1px solid #e5e7eb;padding:20px 40px;">
+            <p style="margin:0;font-size:12px;color:#9ca3af;line-height:1.6;">
+              This is an automated message from Procurement OS. Do not reply to this email.
+            </p>
+          </td>
+        </tr>
+
+      </table>
+    </td></tr>
+  </table>
+</body>
+</html>`.trim();
+
+  const info = await transporter.sendMail({
+    from: process.env.SMTP_FROM,
+    to: userEmail,
+    subject: `Your Password Reset OTP — ${otp}`,
+    html,
+  });
+
+  console.log(`[Email] OTP sent to ${userEmail}: ${info.messageId}`);
+  return info;
+};
+
 export default { 
   sendApprovalEmail, 
   sendIndentorConfirmationEmail,
@@ -646,5 +768,7 @@ export default {
   sendPoIssuanceEmail, 
   sendPoApprovalEmail,
   sendFeedbackConfirmationEmail,
-  sendFeedbackNotificationToAdminEmail
+  sendFeedbackNotificationToAdminEmail,
+  sendInAppApprovalEmail,
+  sendOtpEmail
 };

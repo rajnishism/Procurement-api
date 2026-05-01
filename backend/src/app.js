@@ -3,6 +3,7 @@ import express from 'express';
 import cors from 'cors';
 import { fileURLToPath } from 'url';
 import path from 'path';
+import cookieParser from 'cookie-parser';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -26,6 +27,8 @@ import poApprovalRoutes from './routes/poApprovalRoutes.js';
 import auditRoutes from './routes/auditRoutes.js';
 import feedbackRoutes from './routes/feedbackRoutes.js';
 import notificationRoutes from './routes/notificationRoutes.js';
+import inAppApprovalRoutes from './routes/inAppApprovalRoutes.js';
+import analyticsRoutes from './routes/analyticsRoutes.js';
 
 
 // Legacy/Internal support (keeping for now, but will migrate)
@@ -39,9 +42,13 @@ import techReviewRoutes from './routes/techReviewRoutes.js';
 import { authenticate, authorize } from './middlewares/authMiddleware.js';
 import { auditMiddleware } from './middlewares/auditMiddleware.js';
 
-app.use(cors());
+app.use(cors({
+  origin: process.env.APP_URL || 'http://localhost:5173',
+  credentials: true
+}));
 app.use(express.json());
-// app.use(auditMiddleware);
+app.use(cookieParser());
+app.use(auditMiddleware);
 
 // Global Request Logger
 app.use((req, res, next) => {
@@ -53,7 +60,6 @@ app.use((req, res, next) => {
 
 // 0. Auth (login is public, register/users require auth internally)
 app.use('/api/auth', authRoutes);
-app.use('/api/uploads', express.static(path.join(__dirname, '../uploads')));
 
 // External token-based routes (email approval links & vendor portal)
 app.use('/api/approvals', approvalRoutes);
@@ -95,6 +101,12 @@ app.use('/api/migration', migrationRoutes);
 app.use('/api/audit-logs', auditRoutes);
 app.use('/api/feedback', feedbackRoutes);
 app.use('/api/notifications', notificationRoutes);
+
+// 10. In-App Approval Engine
+app.use('/api/in-approvals', inAppApprovalRoutes);
+
+// 11. Analytics & Dashboard
+app.use('/api/analytics', analyticsRoutes);
 
 // Legacy RFQ/Quotation support (until PR -> NFA -> PO logic is fully converted)
 app.use('/api/rfqs', rfqRoutes);

@@ -311,6 +311,7 @@ export const submitApproval = async (req, res) => {
             // Map each role to its signature cell positions in the Excel sheet
             const sigPositions = {
                 'INDENTOR': { nameCell: 'B21', imageRange: 'B20:B20' },
+                
                 'STAGE2': { nameCell: 'D21', imageRange: 'D20:D20' },
                 'STAGE3': { nameCell: 'J21', imageRange: 'J20:L20' },
             };

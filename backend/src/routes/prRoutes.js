@@ -20,14 +20,20 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage });
+import { fileFilter } from '../utils/fileUploadSecurity.js';
+
+const upload = multer({ 
+    storage,
+    fileFilter,
+    limits: { fileSize: 15 * 1024 * 1024 } // 15MB limit for PR documents
+});
 const router = express.Router();
 
 // --- PURCHASE REQUISITIONS (PR) ---
 
 // Core CRUD
 router.get('/', getPrs);                // GET /api/prs
-router.post('/', saveAiPr);             // POST /api/prs (Previously save-ai)
+router.post('/', upload.fields([{ name: 'file', maxCount: 1 }, { name: 'additionalFiles', maxCount: 10 }]), saveAiPr);
 router.get('/:id', getPrById);         // GET /api/prs/:id
 router.patch('/:id', updatePr);        // PATCH /api/prs/:id
 router.delete('/:id', deletePr);      // DELETE /api/prs/:id

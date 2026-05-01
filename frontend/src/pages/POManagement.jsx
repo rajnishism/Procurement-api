@@ -1,21 +1,28 @@
 import React, { useState, useEffect } from 'react';
-import { Plus, CheckCircle, XCircle, Package, ChevronRight, AlertCircle } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
+import { Search, Plus, CheckCircle, XCircle, Package, ChevronRight, AlertCircle, Download, Calendar, Building2, Hash, DollarSign, FileText, Eye, Filter, User, Ship, ExternalLink } from 'lucide-react';
 import api from '../api/axios';
 
 const statusColors = {
-    DRAFT: { bg: '#f3f4f6', color: '#6b7280' },
-    ISSUED: { bg: '#dbeafe', color: '#1d4ed8' },
-    ACKNOWLEDGED: { bg: '#e0e7ff', color: '#4338ca' },
-    PARTIALLY_DELIVERED: { bg: '#fef3c7', color: '#d97706' },
-    DELIVERED: { bg: '#d1fae5', color: '#059669' },
-    CANCELLED: { bg: '#fee2e2', color: '#dc2626' },
-    CLOSED: { bg: '#f9fafb', color: '#374151' },
+    DRAFT: { bg: '#f3f4f6', color: '#6b7280', label: 'Draft' },
+    ISSUED: { bg: '#dbeafe', color: '#1d4ed8', label: 'Issued' },
+    ACKNOWLEDGED: { bg: '#e0e7ff', color: '#4338ca', label: 'Acknowledged' },
+    PARTIALLY_DELIVERED: { bg: '#fef3c7', color: '#d97706', label: 'Partial' },
+    DELIVERED: { bg: '#d1fae5', color: '#059669', label: 'Delivered' },
+    CANCELLED: { bg: '#fee2e2', color: '#dc2626', label: 'Cancelled' },
+    CLOSED: { bg: '#f9fafb', color: '#374151', label: 'Closed' },
 };
 
-const POManagement = ({ filterStatus = 'ALL' }) => {
+const POManagement = ({ filterStatus: initialFilter = 'ALL' }) => {
+    const navigate = useNavigate();
     const [pos, setPOs] = useState([]);
     const [loading, setLoading] = useState(true);
-    const [selectedPO, setSelectedPO] = useState(null);
+    const [searchTerm, setSearchTerm] = useState('');
+    const [filterStatus, setFilterStatus] = useState(initialFilter);
+
+    useEffect(() => {
+        setFilterStatus(initialFilter);
+    }, [initialFilter]);
 
     const fetchAll = async () => {
         setLoading(true);
@@ -26,129 +33,178 @@ const POManagement = ({ filterStatus = 'ALL' }) => {
         finally { setLoading(false); }
     };
 
-    useEffect(() => { fetchAll(); }, [filterStatus]);
+    useEffect(() => { fetchAll(); }, []);
 
-
-    const handleStatus = async (id, action, reason) => {
-        try {
-            if (action === 'cancel') { await api.patch(`/purchase-orders/${id}/cancel`, { cancelReason: reason }); }
-            else { await api.patch(`/purchase-orders/${id}/${action}`); }
-            fetchAll();
-            setSelectedPO(null);
-        } catch (e) { alert(e.response?.data?.error || `Failed to ${action} PO.`); }
+    const handleViewDetails = (id) => {
+        navigate(`/pos/${id}`);
     };
 
-    const formatCur = v => `₹${Number(v).toLocaleString('en-IN')}`;
-    const formatUSD = v => `$${(Number(v) / 83).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`; // Mock conversion 1 USD = 83 INR
-    const filteredPOs = pos.filter(po => filterStatus === 'ALL' || po.status === filterStatus);
+    const formatCurrency = v => `$${Number(v).toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
 
-    if (loading) return <div className="flex items-center justify-center h-64"><div className="w-8 h-8 border-4 border-blue-600 border-t-transparent rounded-full animate-spin" /></div>;
+    const filteredPOs = pos.filter(po => {
+        const matchesSearch = 
+            po.poNumber?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            po.vendor?.name?.toLowerCase().includes(searchTerm.toLowerCase()) ||
+            po.pr?.prNumber?.toLowerCase().includes(searchTerm.toLowerCase());
+        const matchesStatus = filterStatus === 'ALL' || po.status === filterStatus;
+        return matchesSearch && matchesStatus;
+    });
+
+    const getStatusStyle = (status) => {
+        const sc = statusColors[status] || statusColors.DRAFT;
+        return { background: sc.bg, color: sc.color };
+    };
 
     return (
         <div className="space-y-6">
-            <div className="flex justify-between items-center">
-                <h2 className="text-3xl font-black text-gray-800 tracking-tight">{filterStatus === 'ALL' ? 'Purchase Order History' : 'Purchase Order Tracker'}</h2>
+            {/* Header Section */}
+            <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
+                <div>
+                    <h2 className="text-3xl font-black text-gray-800 tracking-tight">
+                        {initialFilter === 'ALL' ? 'Purchase Order History' : 'Purchase Order Tracker'}
+                    </h2>
+                    <p className="text-gray-500 font-medium">
+                        {initialFilter === 'ALL' ? 'Complete archive of all procurement orders' : 'Monitoring active supply contracts and delivery status'}
+                    </p>
+                </div>
+                <div className="flex items-center space-x-2">
+                    <button className="flex items-center space-x-2 bg-indigo-50 hover:bg-indigo-100 text-indigo-600 px-4 py-2.5 rounded-xl text-sm font-bold border border-indigo-100 transition-all">
+                        <Download size={18} />
+                        <span>Export Excel</span>
+                    </button>
+                </div>
             </div>
 
-            {filterStatus === 'ALL' ? (
-                <div className="grid gap-4">
-                    {filteredPOs.length === 0 && <div className="bg-white rounded-2xl p-12 text-center text-gray-400 border border-gray-100"><Package size={40} className="mx-auto mb-3 opacity-40" /><p className="font-semibold">No POs yet.</p></div>}
-                    {filteredPOs.map(po => {
-                        const sc = statusColors[po.status] || statusColors.DRAFT;
-                        return (
-                            <div key={po.id} className="bg-white rounded-2xl border border-gray-100 shadow-sm hover:shadow-md transition-shadow">
-                                <div className="flex items-center justify-between p-5">
-                                    <div className="flex items-center gap-4">
-                                        <div className="w-11 h-11 rounded-xl bg-blue-100 flex items-center justify-center"><Package size={20} className="text-blue-600" /></div>
-                                        <div>
-                                            <p className="font-black text-gray-900">{po.poNumber}</p>
-                                            <p className="text-sm text-gray-600">{po.vendor?.name}</p>
-                                            <p className="text-xs text-gray-400 mt-0.5">PR: {po.pr?.prNumber} · {formatCur(po.totalAmount)}</p>
-                                        </div>
-                                    </div>
-                                    <div className="flex items-center gap-3">
-                                        <span className="text-xs font-black px-2 py-1 rounded-full" style={{ background: sc.bg, color: sc.color }}>{po.status}</span>
-                                        <button onClick={() => setSelectedPO(po)} className="px-3 py-1.5 rounded-lg bg-gray-100 text-gray-700 text-xs font-black flex items-center gap-1 hover:bg-gray-200">
-                                            <ChevronRight size={13} /> Manage
-                                        </button>
-                                    </div>
-                                </div>
-                            </div>
-                        );
-                    })}
+            {/* Filters & Search */}
+            <div className="bg-white p-4 rounded-2xl border border-gray-100 shadow-sm flex flex-wrap items-center gap-4">
+                <div className="flex-1 min-w-[300px] relative">
+                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400" size={18} />
+                    <input
+                        type="text"
+                        placeholder="Search by PO#, Vendor, or PR#..."
+                        className="w-full pl-10 pr-4 py-2 bg-gray-50 border-none rounded-xl text-sm focus:ring-2 focus:ring-blue-500 font-medium"
+                        value={searchTerm}
+                        onChange={(e) => setSearchTerm(e.target.value)}
+                    />
                 </div>
-            ) : (
-                <div className="bg-white rounded-3xl border border-gray-100 shadow-xl overflow-hidden">
-                    <div className="overflow-x-auto">
-                        <table className="w-full text-left border-collapse">
-                            <thead>
-                                <tr className="bg-gray-50/50 border-b border-gray-100">
-                                    {['Sr. No', 'PO#', 'Date', 'SR-199', 'WBS', 'Vendor', 'Country', 'Description', 'Amount US$', 'Open/Close'].map(h => (
-                                        <th key={h} className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">{h}</th>
-                                    ))}
-                                    <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest">Action</th>
+                {initialFilter === 'ALL' && (
+                    <div className="flex items-center space-x-2 bg-gray-50 p-1 rounded-xl">
+                        {['ALL', 'ISSUED', 'ACKNOWLEDGED', 'DELIVERED', 'CLOSED'].map(status => (
+                            <button
+                                key={status}
+                                onClick={() => setFilterStatus(status)}
+                                className={`px-4 py-1.5 rounded-lg text-xs font-black transition-all ${filterStatus === status ? 'bg-white text-blue-600 shadow-sm' : 'text-gray-400 hover:text-gray-600'}`}
+                            >
+                                {status}
+                            </button>
+                        ))}
+                    </div>
+                )}
+            </div>
+
+            {/* Excel Inspired Table */}
+            <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+                <div className="overflow-x-auto">
+                    <table className="w-full text-left border-collapse min-w-[1100px]">
+                        <thead>
+                            <tr className="bg-gray-50 border-b border-gray-100">
+                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-12 border-r border-gray-200">#</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">PO Number / Vendor</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">Date Issued</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">Linked PR (SR-199)</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">WBS Code</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">Location</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right border-r border-gray-200">Amount (US$)</th>
+                                <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-32 border-r border-gray-200">Status</th>
+                                <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody className="divide-y divide-gray-50">
+                            {loading ? (
+                                <tr>
+                                    <td colSpan="9" className="py-20 text-center">
+                                        <div className="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-600"></div>
+                                        <p className="mt-4 text-gray-400 font-bold uppercase tracking-widest text-[10px]">Loading Records...</p>
+                                    </td>
                                 </tr>
-                            </thead>
-                            <tbody className="divide-y divide-gray-50">
-                                {filteredPOs.map((po, idx) => {
-                                    const sc = statusColors[po.status] || statusColors.DRAFT;
-                                    return (
-                                        <tr key={po.id} className="hover:bg-gray-50/50 transition-colors">
-                                            <td className="px-6 py-4 text-sm font-bold text-gray-400">{idx + 1}</td>
-                                            <td className="px-6 py-4 text-sm font-black text-blue-600">{po.poNumber}</td>
-                                            <td className="px-6 py-4 text-sm text-gray-500 font-medium">{new Date(po.createdAt).toLocaleDateString('en-IN')}</td>
-                                            <td className="px-6 py-4 text-sm font-black text-gray-700">{po.pr?.prNumber || 'N/A'}</td>
-                                            <td className="px-6 py-4 text-xs font-mono font-bold text-indigo-600">{po.pr?.wbsCode || 'N/A'}</td>
-                                            <td className="px-6 py-4 text-sm font-bold text-gray-800">{po.vendor?.name}</td>
-                                            <td className="px-6 py-4 text-sm text-gray-500 font-medium">{po.vendor?.country || 'India'}</td>
-                                            <td className="px-6 py-4 text-sm text-gray-500 truncate max-w-[200px]">{po.pr?.title || 'No Description'}</td>
-                                            <td className="px-6 py-4 text-sm font-black text-gray-900">{formatUSD(po.totalAmount)}</td>
-                                            <td className="px-6 py-4">
-                                                <span className="text-[10px] font-black px-2 py-0.5 rounded-full" style={{ background: sc.bg, color: sc.color }}>{po.status}</span>
-                                            </td>
-                                            <td className="px-6 py-4">
-                                                <button onClick={() => setSelectedPO(po)} className="p-2 hover:bg-gray-100 rounded-lg text-gray-400 hover:text-blue-600 transition-colors">
-                                                    <ChevronRight size={18} />
-                                                </button>
-                                            </td>
-                                        </tr>
-                                    );
-                                })}
-                                {filteredPOs.length === 0 && (
-                                    <tr><td colSpan="11" className="px-6 py-12 text-center text-gray-400 font-medium font-italic">No records found for tracking.</td></tr>
-                                )}
-                            </tbody>
-                        </table>
-                    </div>
-                </div>
-            )}
+                            ) : filteredPOs.map((po, idx) => (
+                                <tr key={po.id} className="hover:bg-blue-50/30 transition-colors group">
+                                    <td className="px-6 py-4 text-xs font-bold text-gray-400 text-center border-r border-gray-200">{idx + 1}</td>
+                                    <td 
+                                        className="px-4 py-4 min-w-[250px] border-r border-gray-200 cursor-pointer group"
+                                        onClick={() => handleViewDetails(po.id)}
+                                    >
+                                        <div className="flex items-center justify-between">
+                                            <div className="flex flex-col">
+                                                <span className="text-sm font-black text-gray-800 line-clamp-1 group-hover:text-blue-600 transition-colors">{po.vendor?.name}</span>
+                                                <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded self-start mt-1 uppercase tracking-tight">{po.poNumber}</span>
+                                            </div>
+                                            <ExternalLink size={14} className="text-gray-300 opacity-0 group-hover:opacity-100 transition-all transform translate-x-2 group-hover:translate-x-0" />
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-4 border-r border-gray-200">
+                                        <div className="flex items-center text-xs font-bold text-gray-600 whitespace-nowrap">
+                                            <Calendar size={13} className="mr-1.5 text-gray-400" />
+                                            {new Date(po.createdAt).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-4 border-r border-gray-200">
+                                        <div className="flex items-center gap-2">
+                                            <FileText size={13} className="text-gray-400" />
+                                            <span className="text-xs font-bold text-gray-700">{po.pr?.prNumber || 'N/A'}</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-4 border-r border-gray-200">
+                                        <div className="text-xs font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100 whitespace-nowrap inline-block shadow-sm">
+                                            {po.pr?.wbsCode || 'UNMAPPED'}
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-4 border-r border-gray-200">
+                                        <div className="flex flex-col">
+                                            <span className="text-xs font-bold text-gray-700">{po.vendor?.country || 'India'}</span>
+                                            <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">Region 1</span>
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-4 text-right border-r border-gray-200">
+                                        <div className="text-sm font-black text-gray-900 whitespace-nowrap">
+                                            {formatCurrency(po.totalAmount)}
+                                        </div>
+                                    </td>
+                                    <td className="px-4 py-4 text-center border-r border-gray-200">
+                                        <span className="px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-widest inline-block w-28 text-center" style={getStatusStyle(po.status)}>
+                                            {po.status}
+                                        </span>
+                                    </td>
+                                    <td className="px-6 py-4 text-right whitespace-nowrap">
+                                        <button 
+                                            onClick={() => handleViewDetails(po.id)} 
+                                            className="p-2 text-blue-600 hover:bg-blue-100 rounded-xl transition-all"
+                                            title="View Details"
+                                        >
+                                            <Eye size={18} />
+                                        </button>
+                                    </td>
+                                </tr>
+                            ))}
 
-
-            {/* PO Management Panel */}
-            {selectedPO && (
-                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-                    <div className="bg-white rounded-2xl shadow-2xl w-full max-w-md">
-                        <div className="bg-gradient-to-r from-blue-600 to-indigo-600 px-6 py-5 rounded-t-2xl flex justify-between items-start">
-                            <div><h3 className="text-white font-black text-lg">{selectedPO.poNumber}</h3><p className="text-blue-100 text-sm">{selectedPO.vendor?.name}</p></div>
-                            <button onClick={() => setSelectedPO(null)} className="text-white/70 hover:text-white"><XCircle size={22} /></button>
-                        </div>
-                        <div className="p-6 space-y-3">
-                            <p className="text-xs font-black text-gray-400 uppercase tracking-widest">Change Status</p>
-                            {selectedPO.status === 'DRAFT' && <button onClick={() => handleStatus(selectedPO.id, 'issue')} className="w-full py-3 bg-blue-600 text-white rounded-xl font-black text-sm hover:bg-blue-700">📤 Issue PO to Vendor</button>}
-                            {selectedPO.status === 'ISSUED' && <button onClick={() => handleStatus(selectedPO.id, 'acknowledge')} className="w-full py-3 bg-indigo-600 text-white rounded-xl font-black text-sm hover:bg-indigo-700">✅ Mark as Acknowledged</button>}
-                            {!['CANCELLED', 'CLOSED', 'DELIVERED'].includes(selectedPO.status) && (
-                                <button onClick={() => { const r = prompt('Reason for cancellation?'); if (r) handleStatus(selectedPO.id, 'cancel', r); }} className="w-full py-3 border-2 border-red-200 text-red-600 rounded-xl font-black text-sm hover:bg-red-50">❌ Cancel PO</button>
+                            {!loading && filteredPOs.length === 0 && (
+                                <tr>
+                                    <td colSpan="9" className="py-20 text-center">
+                                        <div className="flex flex-col items-center justify-center">
+                                            <Package size={48} className="text-gray-200 mb-4" />
+                                            <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No PO records found matching filters</p>
+                                        </div>
+                                    </td>
+                                </tr>
                             )}
-                            <div className="pt-2 border-t border-gray-100">
-                                <p className="text-xs text-gray-400 font-semibold">Line Items: {selectedPO.lineItems?.length || 0} · Total: {formatCur(selectedPO.totalAmount)}</p>
-                                {selectedPO.expectedDelivery && <p className="text-xs text-gray-400 mt-1">Expected: {new Date(selectedPO.expectedDelivery).toLocaleDateString('en-IN')}</p>}
-                            </div>
-                        </div>
-                    </div>
+                        </tbody>
+                    </table>
                 </div>
-            )}
+            </div>
+
         </div>
     );
 };
 
 export default POManagement;
+

@@ -1,5 +1,5 @@
 import { Router } from 'express';
-import { login, getMe, register, listUsers, updateUser, updateProfile, uploadSignature, listManagers } from '../controllers/authController.js';
+import { login, logout, getMe, register, listUsers, updateUser, updateProfile, uploadSignature, listManagers, searchUsers, requestPasswordReset, resetPassword } from '../controllers/authController.js';
 import { authenticate, authorize } from '../middlewares/authMiddleware.js';
 import multer from 'multer';
 import path from 'path';
@@ -22,12 +22,21 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage });
+import { imageFilter } from '../utils/fileUploadSecurity.js';
+
+const upload = multer({ 
+    storage,
+    fileFilter: imageFilter,
+    limits: { fileSize: 2 * 1024 * 1024 } // 2MB limit for signatures
+});
 
 const router = Router();
 
 // Public
 router.post('/login', login);
+router.post('/logout', logout);
+router.post('/forgot-password', requestPasswordReset);
+router.post('/reset-password', resetPassword);
 
 // Authenticated
 router.get('/me', authenticate, getMe);
@@ -35,6 +44,7 @@ router.get('/profile', authenticate, getMe); // Alias or use dedicated if logic 
 router.put('/profile', authenticate, updateProfile);
 router.post('/signature', authenticate, upload.single('signature'), uploadSignature);
 router.get('/managers', authenticate, listManagers);
+router.get('/search-users', authenticate, searchUsers);
 
 // Admin only
 router.post('/register', authenticate, authorize('ADMIN'), register);

@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { Search, FileText, Clock, AlertCircle, Download, Trash2, Calendar, Eye, X, User, Users, Building2, Hash, DollarSign, ExternalLink, UserCheck, UploadCloud, ClipboardList, CheckCircle2, GitCompare, ClipboardCheck, Edit3, Check } from 'lucide-react';
+import { useNavigate } from 'react-router-dom';
 import api from '../api/axios';
 
 // ─────────────────────────────────────────────────
@@ -89,9 +90,17 @@ const PrDetailDrawer = ({ pr, onClose }) => {
                         </div>
                     </div>
                     <div className="flex items-center gap-3">
-                        <span className={`px-3 py-1 rounded-full text-[10px] font-black border uppercase tracking-widest ${getStatusStyle(pr.status)}`}>
-                            {pr.status}
-                        </span>
+                        {(() => {
+                            const steps = pr.approvalRequest?.steps || [];
+                            const isActuallyRejected = steps.some(s => s.status === 'REJECTED');
+                            const isActuallyApproved = steps.length > 0 && steps.every(s => s.status === 'APPROVED');
+                            const displayStatus = isActuallyRejected ? 'REJECTED' : (isActuallyApproved ? 'APPROVED' : pr.status);
+                            return (
+                                <span className={`px-3 py-1 rounded-full text-[10px] font-black border uppercase tracking-widest ${getStatusStyle(displayStatus)}`}>
+                                    {displayStatus}
+                                </span>
+                            );
+                        })()}
                         <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
                             <X size={20} className="text-gray-500" />
                         </button>
@@ -245,32 +254,38 @@ const PrDetailDrawer = ({ pr, onClose }) => {
                                         </tr>
                                     </thead>
                                     <tbody className="divide-y divide-gray-100 bg-white">
-                                        {approvals.map(a => {
-                                            const cfg = approvalStatusCfg[a.status] || approvalStatusCfg.PENDING;
-                                            return (
-                                                <tr key={a.id}>
-                                                    <td className="px-4 py-3">
-                                                        <p className="font-bold text-gray-900">{a.approver?.name}</p>
-                                                        <p className="text-[10px] text-gray-400">{a.approver?.email}</p>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <p className="text-[10px] font-black text-indigo-600 uppercase tracking-tight bg-indigo-50 px-2 py-0.5 rounded-md inline-block">
-                                                            {roleMapping[a.role] || a.role}
-                                                        </p>
-                                                    </td>
-                                                    <td className="px-4 py-3">
-                                                        <span style={{ background: cfg.bg, color: cfg.color }}
-                                                            className="inline-block px-2 py-0.5 rounded-full font-black text-[10px]">
-                                                            {cfg.icon} {cfg.label}
-                                                        </span>
-                                                    </td>
-                                                    <td className="px-4 py-3 text-gray-500 max-w-[120px] truncate">{a.comments || '—'}</td>
-                                                    <td className="px-4 py-3 text-right text-gray-400">
-                                                        {a.respondedAt ? new Date(a.respondedAt).toLocaleDateString() : '—'}
-                                                    </td>
-                                                </tr>
-                                            );
-                                        })}
+                                        {approvals
+                                            .filter(a => roleMapping[a.role])
+                                            .sort((a, b) => {
+                                                const order = ['INDENTOR', 'STAGE1', 'STAGE2', 'STAGE3'];
+                                                return order.indexOf(a.role) - order.indexOf(b.role);
+                                            })
+                                            .map(a => {
+                                                const cfg = approvalStatusCfg[a.status] || approvalStatusCfg.PENDING;
+                                                return (
+                                                    <tr key={a.id}>
+                                                        <td className="px-4 py-3">
+                                                            <p className="font-bold text-gray-900">{a.approver?.name}</p>
+                                                            <p className="text-[10px] text-gray-400">{a.approver?.email}</p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <p className="text-[10px] font-black text-indigo-600 uppercase tracking-tight bg-indigo-50 px-2 py-0.5 rounded-md inline-block">
+                                                                {roleMapping[a.role] || a.role}
+                                                            </p>
+                                                        </td>
+                                                        <td className="px-4 py-3">
+                                                            <span style={{ background: cfg.bg, color: cfg.color }}
+                                                                className="inline-block px-2 py-0.5 rounded-full font-black text-[10px]">
+                                                                {cfg.icon} {cfg.label}
+                                                            </span>
+                                                        </td>
+                                                        <td className="px-4 py-3 text-gray-500 max-w-[120px] truncate">{a.comments || '—'}</td>
+                                                        <td className="px-4 py-3 text-right text-gray-400">
+                                                            {a.respondedAt ? new Date(a.respondedAt).toLocaleDateString() : '—'}
+                                                        </td>
+                                                    </tr>
+                                                );
+                                            })}
                                     </tbody>
                                 </table>
                             </div>
@@ -286,7 +301,7 @@ const PrDetailDrawer = ({ pr, onClose }) => {
                     <div className="flex items-center gap-2">
                         {pr.pdfPath && (
                             <a
-                                href={`${(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '')}/api/uploads/${pr.pdfPath.includes('AI-TMP') ? 'quotations' : 'pdfs'}/${pr.pdfPath}`}
+                                href={`${(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '')}/api/uploads/${pr.pdfPath}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-2 bg-blue-600 hover:bg-blue-700 text-white text-[10px] font-black px-4 py-2.5 rounded-xl transition-colors"
@@ -295,15 +310,15 @@ const PrDetailDrawer = ({ pr, onClose }) => {
                                 View PDF
                             </a>
                         )}
-                        {pr.excelPath && (
+                        {pr.templatePdfPath && (
                             <a
-                                href={`${(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '')}/api/uploads/output/${pr.excelPath}`}
+                                href={`${(import.meta.env.VITE_API_URL || 'http://localhost:3000/api').replace('/api', '')}/api/uploads/${pr.templatePdfPath}`}
                                 target="_blank"
                                 rel="noopener noreferrer"
                                 className="flex items-center gap-2 bg-emerald-600 hover:bg-emerald-700 text-white text-[10px] font-black px-4 py-2.5 rounded-xl transition-colors"
                             >
-                                <Download size={12} />
-                                Excel PR
+                                <ExternalLink size={12} />
+                                View PR Form
                             </a>
                         )}
                     </div>
@@ -681,6 +696,7 @@ const DeleteModal = ({ pr, onConfirm, onCancel }) => {
 // MAIN COMPONENT
 // ─────────────────────────────────────────────────
 const PrTracking = ({ filterStatus: initialFilter = 'ALL' }) => {
+    const navigate = useNavigate();
     const [prs, setPrs] = useState([]);
     const [loading, setLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
@@ -708,13 +724,8 @@ const PrTracking = ({ filterStatus: initialFilter = 'ALL' }) => {
         }
     };
 
-    const handleViewDetails = async (id) => {
-        try {
-            const res = await api.get(`/prs/${id}`);
-            setSelectedPr(res.data);
-        } catch (err) {
-            console.error('Error fetching PR details', err);
-        }
+    const handleViewDetails = (id) => {
+        navigate(`/prs/${id}`);
     };
 
     const handleDelete = async (id, reason) => {
@@ -741,7 +752,7 @@ const PrTracking = ({ filterStatus: initialFilter = 'ALL' }) => {
     const getStatusStyle = (status) => {
         switch (status) {
             case 'APPROVED': return 'bg-emerald-50 text-emerald-700 border-emerald-100';
-            case 'PENDING': return 'bg-blue-50 text-blue-700 border-blue-100';
+            case 'PENDING': return 'bg-amber-50 text-amber-700 border-amber-100';
             case 'REJECTED': return 'bg-red-50 text-red-700 border-red-100';
             default: return 'bg-gray-50 text-gray-700 border-gray-100';
         }
@@ -811,92 +822,110 @@ const PrTracking = ({ filterStatus: initialFilter = 'ALL' }) => {
                         <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-600"></div>
                     </div>
                 ) : (
-                    <div className="grid grid-cols-1 gap-4">
-                        {filteredPrs.map(pr => (
-                            <div
-                                key={pr.id}
-                                className="bg-white rounded-[1.5rem] border border-gray-100 p-5 shadow-sm hover:shadow-md transition-all group"
-                            >
-                                <div className="flex flex-col md:flex-row md:items-center justify-between gap-4">
-                                    <div className="flex items-start space-x-4">
-                                        <div className="p-3 bg-blue-50 text-blue-600 rounded-2xl">
-                                            <FileText size={24} />
-                                        </div>
-                                        <div>
-                                            <div className="flex items-center space-x-3 mb-1">
-                                                <h3 className="text-lg font-black text-gray-800">{pr.prNumber}</h3>
-                                                <span className={`px-2.5 py-0.5 rounded-full text-[10px] font-black border uppercase tracking-wider ${getStatusStyle(pr.status)}`}>
-                                                    {pr.status}
-                                                </span>
-                                            </div>
-                                            <p className="text-sm text-gray-500 font-medium line-clamp-1 mb-2">{pr.description}</p>
-                                            <div className="flex flex-wrap items-center gap-4">
-                                                <div className="flex items-center text-xs font-bold text-gray-400">
-                                                    <Clock size={14} className="mr-1.5" />
-                                                    {new Date(pr.prDate).toLocaleDateString()}
-                                                </div>
-                                                <div className="flex items-center text-xs font-black text-blue-600 bg-blue-50 px-2 py-0.5 rounded">
-                                                    WBS: {pr.wbsCode || 'UNMAPPED'}
-                                                </div>
-                                                <div className="text-xs font-bold text-indigo-500">
-                                                    Dept: {pr.department?.name}
-                                                </div>
-                                                <div className="flex items-center text-xs font-bold text-purple-600 bg-purple-50 px-2 py-0.5 rounded">
-                                                    <Calendar size={14} className="mr-1.5" />
-                                                    Alloc: {new Date(pr.year, pr.month - 1).toLocaleString('default', { month: 'short', year: 'numeric' })}
-                                                </div>
-                                            </div>
-                                        </div>
-                                    </div>
-
-                                    <div className="flex items-center justify-between md:flex-col md:items-end gap-2 pr-2">
-                                        <div className="text-2xl font-black text-gray-900">
-                                            ${parseFloat(pr.totalValue).toLocaleString()}
-                                        </div>
-                                        <div className="flex items-center gap-2 opacity-100 md:opacity-0 md:group-hover:opacity-100 transition-opacity">
-                                            {/* View Details */}
-                                            <button
+                    <div className="bg-white rounded-[2rem] border border-gray-100 shadow-sm overflow-hidden">
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-left border-collapse min-w-[1000px]">
+                                <thead>
+                                    <tr className="bg-gray-50 border-b border-gray-100">
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-12 border-r border-gray-200">#</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">PR Number / Description</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">Date</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">Department / Area</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest min-w-[240px] border-r border-gray-200">WBS Code</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest border-r border-gray-200">Alloc. Period</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right border-r border-gray-200">Total Value</th>
+                                        <th className="px-4 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-center w-32 border-r border-gray-200">Status</th>
+                                        <th className="px-6 py-4 text-[10px] font-black text-gray-400 uppercase tracking-widest text-right">Actions</th>
+                                    </tr>
+                                </thead>
+                                <tbody className="divide-y divide-gray-50">
+                                    {filteredPrs.map((pr, idx) => (
+                                        <tr
+                                            key={pr.id}
+                                            className="hover:bg-blue-50/30 transition-colors group cursor-default"
+                                        >
+                                            <td className="px-6 py-4 text-xs font-bold text-gray-400 text-center border-r border-gray-200">{idx + 1}</td>
+                                            <td
+                                                className="px-4 py-4 min-w-[250px] border-r border-gray-200 cursor-pointer hover:bg-gray-50 transition-all group/cell"
                                                 onClick={() => handleViewDetails(pr.id)}
-                                                className="text-blue-600 hover:text-blue-700 bg-blue-50 hover:bg-blue-100 p-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
-                                                title="View Full Details"
                                             >
-                                                <Eye size={14} /> Details
-                                            </button>
-                                            <button
-                                                onClick={() => setDeleteTarget(pr)}
-                                                className="text-red-500 hover:text-red-600 bg-red-50 hover:bg-red-100 p-2 rounded-lg transition-colors flex items-center gap-1 text-xs font-bold"
-                                                title="Delete PR"
-                                            >
-                                                <Trash2 size={14} /> Delete
-                                            </button>
-                                        </div>
-                                    </div>
-                                </div>
-
-                                {/* Allocations Preview */}
-                                {pr.allocations?.length > 0 && (
-                                    <div className="mt-4 pt-4 border-t border-gray-50 flex items-center gap-3 overflow-x-auto pb-2 scrollbar-none">
-                                        <span className="text-[10px] font-black text-gray-400 uppercase tracking-widest mr-2 flex-shrink-0">Linked To:</span>
-                                        {pr.allocations.map((alloc, idx) => (
-                                            <div key={idx} className="flex items-center bg-gray-50 px-3 py-1.5 rounded-xl border border-gray-100 flex-shrink-0">
-                                                <div className="mr-2">
-                                                    <p className="text-[9px] font-black text-gray-400 uppercase leading-none">{alloc.budgetHead?.name}</p>
-                                                    <p className="text-[10px] font-bold text-gray-700">${parseFloat(alloc.amount).toLocaleString()}</p>
+                                                <div className="flex flex-col">
+                                                    <div className="flex items-center gap-2">
+                                                        <span className="text-sm font-black text-gray-800 line-clamp-1 group-hover/cell:text-blue-600 transition-colors uppercase tracking-tight">{pr.description}</span>
+                                                        <ExternalLink size={12} className="text-gray-300 opacity-0 group-hover/cell:opacity-100 transition-all translate-x-[-4px] group-hover/cell:translate-x-0" />
+                                                    </div>
+                                                    <span className="text-[11px] font-bold text-blue-600 bg-blue-50 px-1.5 py-0.5 rounded self-start mt-1 uppercase tracking-tight">{pr.prNumber}</span>
                                                 </div>
-                                                {alloc.isManualOverride && <AlertCircle size={12} className="text-amber-500 ml-1" />}
-                                            </div>
-                                        ))}
-                                    </div>
-                                )}
-                            </div>
-                        ))}
+                                            </td>
+                                            <td className="px-4 py-4 border-r border-gray-200">
+                                                <div className="flex items-center text-xs font-bold text-gray-600 whitespace-nowrap">
+                                                    <Calendar size={13} className="mr-1.5 text-gray-400" />
+                                                    {new Date(pr.prDate).toLocaleDateString('en-GB', { day: '2-digit', month: 'short', year: 'numeric' })}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 border-r border-gray-200">
+                                                <div className="flex flex-col">
+                                                    <span className="text-xs font-bold text-gray-700">{pr.department?.name || '—'}</span>
+                                                    <span className="text-[10px] font-medium text-gray-400 uppercase tracking-wider">{pr.area || '—'}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 min-w-[240px] border-r border-gray-200">
+                                                <div className="text-xs font-black text-indigo-600 bg-indigo-50 px-2.5 py-1.5 rounded-lg border border-indigo-100 whitespace-nowrap inline-block shadow-sm">
+                                                    {pr.wbsCode || 'UNMAPPED'}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 border-r border-gray-200">
+                                                <div className="flex flex-col">
+                                                    <span className="text-[11px] font-black text-gray-700 uppercase">{new Date(pr.year, pr.month - 1).toLocaleString('default', { month: 'long' })}</span>
+                                                    <span className="text-[10px] font-medium text-gray-400">{pr.year}</span>
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 text-right border-r border-gray-200">
+                                                <div className="text-sm font-black text-gray-900 whitespace-nowrap">
+                                                    ${parseFloat(pr.totalValue).toLocaleString(undefined, { minimumFractionDigits: 2 })}
+                                                </div>
+                                            </td>
+                                            <td className="px-4 py-4 text-center border-r border-gray-200">
+                                                {(() => {
+                                                    const steps = pr.approvalRequest?.steps || [];
+                                                    const isActuallyRejected = steps.some(s => s.status === 'REJECTED');
+                                                    const isActuallyApproved = steps.length > 0 && steps.every(s => s.status === 'APPROVED');
+                                                    const displayStatus = isActuallyRejected ? 'REJECTED' : (isActuallyApproved ? 'APPROVED' : pr.status);
+                                                    return (
+                                                        <span className={`px-2.5 py-1 rounded-full text-[10px] font-black border uppercase tracking-widest inline-block w-24 ${getStatusStyle(displayStatus)}`}>
+                                                            {displayStatus}
+                                                        </span>
+                                                    );
+                                                })()}
+                                            </td>
+                                            <td className="px-6 py-4 text-right whitespace-nowrap">
+                                                <div className="flex items-center justify-end gap-2">
+                                                    <button
+                                                        onClick={() => handleViewDetails(pr.id)}
+                                                        className="p-2 text-blue-600 hover:bg-blue-100 rounded-xl transition-all"
+                                                        title="View Details"
+                                                    >
+                                                        <Eye size={18} />
+                                                    </button>
 
-                        {filteredPrs.length === 0 && (
-                            <div className="flex flex-col items-center justify-center py-20 bg-gray-50 rounded-[2rem] border border-dashed border-gray-300">
-                                <FileText size={48} className="text-gray-300 mb-4" />
-                                <p className="text-gray-500 font-bold">No purchase requisitions found matching your filters.</p>
-                            </div>
-                        )}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    ))}
+
+                                    {filteredPrs.length === 0 && (
+                                        <tr>
+                                            <td colSpan="9" className="py-20 text-center">
+                                                <div className="flex flex-col items-center justify-center">
+                                                    <FileText size={48} className="text-gray-200 mb-4" />
+                                                    <p className="text-gray-400 font-bold uppercase tracking-widest text-xs">No records found matching filters</p>
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </tbody>
+                            </table>
+                        </div>
                     </div>
                 )}
             </div>

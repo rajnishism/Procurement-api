@@ -111,6 +111,9 @@ export default function ActivityDashboard() {
                                 <div className="flex-1 bg-slate-50 rounded-2xl border border-slate-100 p-5 group-hover:border-indigo-200 transition-colors">
                                     <div className="flex justify-between items-start mb-3">
                                         <div>
+                                            <h3 className="text-sm font-bold text-slate-800 mb-2 capitalize leading-snug">
+                                                {log.details?.summary || `${log.actor.split('@')[0]} ${log.action.toLowerCase()}`}
+                                            </h3>
                                             <div className="flex items-center gap-3 mb-2">
                                                 <span className={`px-2 py-1 rounded-md text-[10px] font-black uppercase tracking-widest border ${getActionColor(log.action)}`}>
                                                     {log.action}
@@ -119,10 +122,6 @@ export default function ActivityDashboard() {
                                                     {log.entityType || 'SYSTEM'}
                                                 </span>
                                             </div>
-                                            <p className="text-xs font-bold text-slate-800 flex items-center gap-2">
-                                                <User size={14} className="text-slate-400" />
-                                                Actor: <span className="text-indigo-600">{log.actor}</span>
-                                            </p>
                                         </div>
                                         <div className="text-right">
                                             <p className="text-[10px] font-bold text-slate-400 uppercase tracking-widest flex items-center justify-end gap-1 mb-1">
@@ -134,16 +133,15 @@ export default function ActivityDashboard() {
                                         </div>
                                     </div>
 
-                                    {(log.entityId || log.ipAddress) && (
-                                        <div className="flex items-center gap-4 text-xs font-medium text-slate-500 mb-4 bg-white border border-slate-100 p-2.5 rounded-xl">
-                                            {log.entityId && (
-                                                <span className="flex items-center gap-1.5"><Server size={14} className="text-blue-400" /> ID: <span className="font-mono text-[10px]">{log.entityId}</span></span>
-                                            )}
-                                            {log.ipAddress && (
-                                                <span className="flex items-center gap-1.5"><Server size={14} className="text-slate-300" /> IP: <span className="font-mono text-[10px]">{log.ipAddress}</span></span>
-                                            )}
-                                        </div>
-                                    )}
+                                    <div className="flex items-center flex-wrap gap-4 text-xs font-medium text-slate-500 mb-4 bg-white border border-slate-100 p-2.5 rounded-xl">
+                                        <span className="flex items-center gap-1.5"><User size={14} className="text-indigo-400" /> Actor: <span className="font-bold text-slate-700">{log.actor}</span></span>
+                                        {log.entityId && (
+                                            <span className="flex items-center gap-1.5"><Server size={14} className="text-blue-400" /> ID: <span className="font-mono text-[10px]">{log.entityId}</span></span>
+                                        )}
+                                        {log.ipAddress && (
+                                            <span className="flex items-center gap-1.5"><Server size={14} className="text-slate-300" /> IP: <span className="font-mono text-[10px]">{log.ipAddress}</span></span>
+                                        )}
+                                    </div>
 
                                     {log.details && (
                                         <div className="bg-slate-900 rounded-xl p-4 overflow-hidden border border-slate-800">

@@ -19,25 +19,15 @@ const storage = multer.diskStorage({
     },
 });
 
+import { fileFilter } from '../utils/fileUploadSecurity.js';
+
 const upload = multer({
     storage,
     limits: { fileSize: 20 * 1024 * 1024 }, // 20 MB per file
     fileFilter: (req, file, cb) => {
-        // Allow: PDF, Word, Excel, images, ZIP
-        const allowed = [
-            'application/pdf',
-            'application/msword',
-            'application/vnd.openxmlformats-officedocument.wordprocessingml.document',
-            'application/vnd.ms-excel',
-            'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet',
-            'image/jpeg', 'image/png', 'image/webp',
-            'application/zip', 'application/x-zip-compressed',
-        ];
-        if (allowed.includes(file.mimetype)) {
-            cb(null, true);
-        } else {
-            cb(new Error(`File type ${file.mimetype} is not allowed.`));
-        }
+        const ext = path.extname(file.originalname).toLowerCase();
+        if (ext === '.zip') return cb(null, true);
+        fileFilter(req, file, cb);
     },
 });
 

@@ -4,6 +4,7 @@ import { extractQuotationDetails, exportPRExcel } from '../controllers/aiControl
 import path from 'path';
 import fs from 'fs';
 import { fileURLToPath } from 'url';
+import { fileFilter } from '../utils/fileUploadSecurity.js';
 
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
@@ -29,7 +30,11 @@ const storage = multer.diskStorage({
     }
 });
 
-const upload = multer({ storage });
+const upload = multer({ 
+    storage,
+    fileFilter,
+    limits: { fileSize: 10 * 1024 * 1024 } // 10MB limit
+});
 const router = express.Router();
 
 // POST /api/ai/extract - handles file part and calls controllers

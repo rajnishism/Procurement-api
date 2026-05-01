@@ -9,7 +9,35 @@ const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
 const API_KEY = process.env.ANTHROPIC_API_KEY;
+// Generate Indent No and other thing from the wbs code.
+function generateIndentNumber(wbsCode, lastPRNumber = 0) {
+  if (!wbsCode) {
+    throw new Error("WBS code is required");
+  }
 
+  const parts = wbsCode.split("-");
+
+  if (parts.length < 5) {
+    throw new Error("Invalid WBS format");
+  }
+
+  // Extract values dynamically
+  const department = parts[3];   // MIN
+  const category = parts[4];     // EQP (replaces MMA)
+
+  // Increment PR number
+  const newPRNumber = lastPRNumber + 1;
+
+  // Format PR number → 001, 002, ...
+  const formattedPR = String(newPRNumber).padStart(3, "0");
+
+  const indentNumber = `MMCL/${department}/${category}/PR-${formattedPR}`;
+
+  return {
+    indentNumber,
+    prNumber: newPRNumber
+  };
+}
 /**
  * Extracts structured quotation details and maps them to the Purchase Requisition (PR) format.
  * Merges extracted items with user-provided metadata (Indent No, Dept, etc.) from the request body.
@@ -75,33 +103,148 @@ export const extractQuotationDetails = async (req, res) => {
               type: 'text',
               text: `Analyze this quotation and structure it for a Purchase Requisition.
 
-1. Identify the MAIN ITEM (The primary equipment or product).
+1. Identify the ALL MAIN ITEM (The primary equipment or product OR SERVICES).
 2. Identify all SUPPORTING ITEMS (Service, labor, freight, etc.).
 3. Calculate the GRAND TOTAL of all items and charges.
 4. Extract all items as a flat list for the PR table.
+5. One Line Description for the product or Service (Small Easy to understand Description of the product or service )
+6. Give me WBS Code of each line items. ( I have provided the WBS Code for different Departemnts)
+
+
+WBS- Code:
+const wbsConfig = [
+  {
+    department: "Mining",
+    categories: [
+
+      {
+        category: "Mine Equipment Cashflow",
+        wbsCodes: ["M-1017-M-MIN-EQP"],
+      },
+      {
+        category: "Employees",
+        wbsCodes: ["M-1017-M-MIN-EMP"],
+      },
+      {
+        category: "Gasoline & Petrol",
+        wbsCodes: ["M-1017-M-MIN-GSP"],
+      },
+      {
+        category: "Computer and IT Support",
+        wbsCodes: ["M-1017-M-MIN-IT"],
+      },
+      {
+        category: "Explosives",
+        wbsCodes: ["M-1017-M-MIN-EXP"],
+      },
+      {
+        category: "GET",
+        wbsCodes: ["M-1017-M-MIN-GET"],
+      },
+      {
+        category: "Auxiliary Mine Equipment",
+        wbsCodes: ["M-1017-M-MIN-AME"],
+      },
+      {
+        category: "PMS",
+        wbsCodes: ["M-1017-M-MIN-PM"],
+      },
+      {
+        category: "Tires - Rims",
+        wbsCodes: ["M-1017-M-MIN-TR"],
+      },
+      {
+        category: "Contractors",
+        wbsCodes: ["M-1017-M-MIN-CON"],
+      },
+      {
+        category: "Mine Misc. Adds",
+        wbsCodes: ["M-1017-M-MIN-MMA"],
+      },
+      {
+        category: "Heat & Electric",
+        wbsCodes: ["M-1017-M-MIN-HE"],
+      },
+      {
+        category: "Drill Maintenance",
+        wbsCodes: ["M-1017-M-MIN-DM"],
+      },
+      {
+        category: "MES Washbay",
+        wbsCodes: ["M-1017-M-MIN-MES"],
+      },
+      {
+        category: "Drill Steel",
+        wbsCodes: ["M-1017-M-MIN-DS"],
+      },
+      {
+        category: "Drill Bits",
+        wbsCodes: ["M-1017-M-MIN-DB"],
+      },
+      {
+        category: "Hydraulic Tooling",
+        wbsCodes: ["M-1017-M-MIN-HT"],
+      },
+      {
+        category: "Insurance",
+        wbsCodes: ["M-1017-M-MIN-INS"],
+      },
+      {
+        category: "Survey Supplies",
+        wbsCodes: ["M-1017-M-MIN-SS"],
+      },
+      {
+        category: "PPE",
+        wbsCodes: ["M-1017-M-MIN-PPE"],
+      },
+      {
+        category: "MES Lunchroom & Dry",
+        wbsCodes: ["M-1017-M-MIN-MES"],
+      },
+      {
+        category: "Fire Prevention",
+        wbsCodes: ["M-1017-M-MIN-FP"],
+      },
+      {
+        category: "Vib Tests",
+        wbsCodes: ["M-1017-M-MIN-VT"],
+      },
+      {
+        category: "MES Hand Tools",
+        wbsCodes: ["M-1017-M-MIN-HT"],
+      },
+      {
+        category: "Nuts Bolts Hoses",
+        wbsCodes: ["M-1017-M-MIN-NBH"],
+      },
+      {
+        category: "MES Misc",
+        wbsCodes: ["M-1017-M-MIN-MES"],
+      },
+      {
+        category: "Meals and Entertainment",
+        wbsCodes: ["M-1017-M-MIN-ADM"],
+      },
+      {
+        category: "Lumber",
+        wbsCodes: ["M-1017-M-MIN-MES"],
+      },
+    ],
+  },
+];
+
 
 ITEM DEFINITIONS:
 - MAIN ITEM: Core tangible asset (e.g., Truck, Pump). NOT always the most expensive.
 - SUPPORTING ITEMS: Services or costs required for the main item.
 
+
+
 OUTPUT FORMAT (STRICT JSON ONLY):
 {
   "main_item": {
     "description": string,
-    "specification": string,
-    "quantity": number,
-    "unit": string,
-    "unit_price": number,
-    "total_price": number,
-    "reason": string
   },
-  "supporting_items": [
-    {
-      "description": string,
-      "reason": string,
-      "price": number
-    }
-  ],
   "grand_total": number,
   "items": [
     {
@@ -109,11 +252,13 @@ OUTPUT FORMAT (STRICT JSON ONLY):
       "size": string,
       "specification": string,
       "uom": string,
+      "unit_price": number,
       "requirement": number,
-      "stock": number,
-      "toBuy": number,
+      "area": string,
+      "unit": string,
       "ros": string,
-      "value": number
+      "value": number,
+      "wbs": string
     }
   ]
 }
@@ -121,6 +266,11 @@ OUTPUT FORMAT (STRICT JSON ONLY):
 RULES:
 - Return ONLY valid JSON.
 - "grand_total" MUST be the sum of all item values.
+- "size" should be the physical dimension or size (e.g. 6 inch, DN150, 50mm). Use empty string if not found.
+- "specification" should include material type, standards, part numbers, ASC codes etc.
+- "area" is the area of utilization if mentioned, otherwise use empty string.
+- "ros" is urgency/required-on-site, use "Normal" if not specified.
+- "wbs" is the WBS code if mentioned, otherwise use empty string.
 - "items" should contain EVERY line item from the quote formatted for the PR table.`
             },
             {
@@ -149,7 +299,7 @@ RULES:
     // 3️⃣ MOVE file to temp folder instead of quotations
     const tempDir = path.join(__dirname, '../../uploads/temp');
     if (!fs.existsSync(tempDir)) fs.mkdirSync(tempDir, { recursive: true });
-    
+
     // Ensure we use a unique filename if needed, but req.file.filename is already unique from multer
     const tempPath = path.join(tempDir, req.file.filename);
     fs.renameSync(filePath, tempPath);
@@ -165,7 +315,7 @@ RULES:
 
       // Merge AI items with user-provided metadata defaults
       const fullPrData = {
-        indentNo: indentNo || `PR-${Date.now()}`,
+        indentNo: indentNo,
         department: department || 'General',
         date: date || new Date().toISOString().split('T')[0],
         pdfPath: req.file.filename, // Store filename for later retrieval

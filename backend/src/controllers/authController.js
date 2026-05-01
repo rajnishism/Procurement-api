@@ -1,8 +1,13 @@
 import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import { PrismaClient } from '@prisma/client';
+import { sendOtpEmail } from '../services/emailService.js';
 
 const prisma = new PrismaClient();
+
+// ── In-memory OTP store: { email -> { otp, expiresAt } } ────────────────────
+// For production, replace with Redis or a DB-persisted token model.
+const otpStore = new Map();
 
 const generateToken = (user) => {
     return jwt.sign(
@@ -28,12 +33,12 @@ export const login = async (req, res) => {
 
         const normalizedEmail = email.toLowerCase().trim();
         const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
-        
+
         if (!user) {
             console.log(`[Auth] User not found: ${normalizedEmail}`);
             return res.status(401).json({ error: 'Invalid email or password.' });
         }
-        
+
         if (!user.isActive) {
             console.log(`[Auth] User is deactivated: ${normalizedEmail}`);
             return res.status(403).json({ error: 'Account is deactivated. Contact your administrator.' });
@@ -54,14 +59,23 @@ export const login = async (req, res) => {
         }
 
         const token = generateToken(user);
+
+        // Set secure httpOnly cookie
+        res.cookie('token', token, {
+            httpOnly: true,
+            secure: process.env.NODE_ENV === 'production',
+            sameSite: 'lax', // Better for cross-site navigation while still providing CSRF protection
+            maxAge: 7 * 24 * 60 * 60 * 1000 // 7 days
+        });
+
         res.json({
-            token,
-            user: { 
-                id: user.id, 
-                name: user.name, 
-                email: user.email, 
-                role: user.role, 
-                team: user.team, 
+            // token, // Keeping for backward compatibility if needed, but cookie is primary
+            user: {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                team: user.team,
                 department: user.department,
                 phoneNumber: user.phoneNumber,
                 designation: user.designation,
@@ -102,18 +116,18 @@ export const getMe = async (req, res) => {
                 }
             }),
             prisma.pr.groupBy({
-                 by: ['month', 'year'],
-                 where: { createdById: user.id, deletedAt: null },
-                 _count: { id: true },
-                 orderBy: [ { year: 'desc' }, { month: 'desc' } ],
-                 take: 6
+                by: ['month', 'year'],
+                where: { createdById: user.id, deletedAt: null },
+                _count: { id: true },
+                orderBy: [{ year: 'desc' }, { month: 'desc' }],
+                take: 6
             })
         ]);
 
         // Format trend for charts
         const trend = trendRaw.map(t => ({
-             month: `${t.month}/${t.year}`,
-             count: t._count.id
+            month: `${t.month}/${t.year}`,
+            count: t._count.id
         })).reverse();
 
         const profileData = {
@@ -227,7 +241,7 @@ export const updateUser = async (req, res) => {
 export const updateProfile = async (req, res) => {
     try {
         const { name, email, phoneNumber, designation, location, employeeId, department, reportingManagerId } = req.body;
-        
+
         const data = {};
         if (name !== undefined) data.name = name.trim();
         if (email !== undefined) data.email = email.toLowerCase().trim();
@@ -247,7 +261,7 @@ export const updateProfile = async (req, res) => {
         // 🟢 SYNC WITH APPROVER TABLE
         // If name or email changed, update the corresponding record in Approver table (if it exists)
         if (name !== undefined || email !== undefined) {
-             const approver = await prisma.approver.findUnique({
+            const approver = await prisma.approver.findUnique({
                 where: { email: req.user.email.toLowerCase() } // Use old email from token to find it
             });
 
@@ -307,6 +321,34 @@ export const uploadSignature = async (req, res) => {
     }
 };
 
+
+/**
+ * GET /api/auth/search-users?q=...
+ * Search users by name or email
+ */
+export const searchUsers = async (req, res) => {
+    try {
+        const { q } = req.query;
+        if (!q) return res.json([]);
+
+        const users = await prisma.user.findMany({
+            where: {
+                OR: [
+                    { name: { contains: q, mode: 'insensitive' } },
+                    { email: { contains: q, mode: 'insensitive' } }
+                ],
+                isActive: true
+            },
+            select: { id: true, name: true, email: true, designation: true },
+            take: 20
+        });
+        res.json(users);
+    } catch (err) {
+        console.error('[Auth] Search users error:', err);
+        res.status(500).json({ error: 'Failed to search users.' });
+    }
+};
+
 /**
  * GET /api/auth/managers
  * List users available to be reporting managers
@@ -326,4 +368,94 @@ export const listManagers = async (req, res) => {
         console.error('[Auth] List managers error:', err);
         res.status(500).json({ error: 'Failed to fetch managers.' });
     }
+};
+
+/**
+ * POST /api/auth/forgot-password
+ * Step 1: User submits email → generate OTP → send via email
+ */
+export const requestPasswordReset = async (req, res) => {
+    try {
+        const { email } = req.body;
+        if (!email) return res.status(400).json({ error: 'Email is required.' });
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const user = await prisma.user.findUnique({ where: { email: normalizedEmail } });
+
+        // Always respond with success to prevent user enumeration
+        if (!user || !user.isActive) {
+            return res.json({ message: 'If an account with that email exists, an OTP has been sent.' });
+        }
+
+        // Generate a 6-digit OTP
+        const otp = Math.floor(100000 + Math.random() * 900000).toString();
+        const expiresAt = Date.now() + 10 * 60 * 1000; // 10 minutes
+
+        otpStore.set(normalizedEmail, { otp, expiresAt });
+
+        // Send OTP email
+        await sendOtpEmail({ userName: user.name, userEmail: normalizedEmail, otp });
+
+        console.log(`[Auth] OTP sent to ${normalizedEmail}`);
+        res.json({ message: 'If an account with that email exists, an OTP has been sent.' });
+    } catch (err) {
+        console.error('[Auth] Forgot password error:', err);
+        res.status(500).json({ error: 'Failed to process request.' });
+    }
+};
+
+/**
+ * POST /api/auth/reset-password
+ * Step 2: User submits email + OTP + newPassword → verify → update password
+ */
+export const resetPassword = async (req, res) => {
+    try {
+        const { email, otp, newPassword } = req.body;
+        if (!email || !otp || !newPassword) {
+            return res.status(400).json({ error: 'Email, OTP, and new password are required.' });
+        }
+        if (newPassword.length < 8) {
+            return res.status(400).json({ error: 'Password must be at least 8 characters.' });
+        }
+
+        const normalizedEmail = email.toLowerCase().trim();
+        const stored = otpStore.get(normalizedEmail);
+
+        if (!stored) {
+            return res.status(400).json({ error: 'No OTP was requested for this email. Please request a new one.' });
+        }
+        if (Date.now() > stored.expiresAt) {
+            otpStore.delete(normalizedEmail);
+            return res.status(400).json({ error: 'OTP has expired. Please request a new one.' });
+        }
+        if (stored.otp !== otp.trim()) {
+            return res.status(400).json({ error: 'Invalid OTP. Please check the code and try again.' });
+        }
+
+        // OTP is valid — update the password
+        const salt = await bcrypt.genSalt(12);
+        const hashedPassword = await bcrypt.hash(newPassword, salt);
+
+        await prisma.user.update({
+            where: { email: normalizedEmail },
+            data: { password: hashedPassword }
+        });
+
+        // Invalidate OTP
+        otpStore.delete(normalizedEmail);
+
+        console.log(`[Auth] Password reset successful for ${normalizedEmail}`);
+        res.json({ message: 'Password has been reset successfully. You can now log in.' });
+    } catch (err) {
+        console.error('[Auth] Reset password error:', err);
+        res.status(500).json({ error: 'Failed to reset password.' });
+    }
+};
+
+/**
+ * POST /api/auth/logout
+ */
+export const logout = (req, res) => {
+    res.clearCookie('token');
+    res.json({ message: 'Logged out successfully' });
 };

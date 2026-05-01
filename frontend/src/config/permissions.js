@@ -6,7 +6,7 @@
  */
 
 // Paths that every authenticated user can always access
-const SHARED_PATHS = ['/', '/profile'];
+const SHARED_PATHS = ['/', '/profile', '/analytics'];
 
 // Team → allowed paths (in addition to SHARED_PATHS)
 const TEAM_PERMISSIONS = {

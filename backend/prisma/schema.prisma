@@ -195,6 +195,8 @@ model Pr {
   createdBy      User?           @relation("UserPrs", fields: [createdById], references: [id])
   pdfPath        String?         // relative path to stored PDF
   excelPath      String?         // relative path to generated Excel PR
+  templatePdfPath String?        // PDF proxy of generated Excel template (for preview/audit)
+  additionalFiles String[]       @default([]) // paths to extra files
   lineItems      Json?           // JSON array: [{ sNo, description, estValue }]
   allocations    Allocation[]
   approvals      PrApproval[]
@@ -313,6 +315,7 @@ model PurchaseOrder {
   poApprovals      PoApproval[]
   pdfPath          String?
   excelPath        String?
+  templatePdfPath  String?      // PDF proxy of generated Excel template (for preview/audit)
   createdAt        DateTime     @default(now())
   updatedAt        DateTime     @updatedAt
 }
@@ -572,6 +575,9 @@ model User {
   subordinates       User[]    @relation("ManagerSubordinates")
   signaturePath     String?   // Path to stored signature image
   prs               Pr[]      @relation("UserPrs")
+  nfas              Nfa[]     @relation("UserNfas")
+  approvalRequests  ApprovalRequest[] @relation("UserApprovalRequests")
+  approvalSteps     ApprovalStep[]    @relation("UserApprovalSteps")
   isActive          Boolean   @default(true)
   lastLogin         DateTime?
   createdAt         DateTime  @default(now())
@@ -605,6 +611,37 @@ model Feedback {
   updatedAt   DateTime @updatedAt
 }
 
+// --- PHASE 8b - NFA (NOTE FOR APPROVAL) -----------------------------------------
+
+model Nfa {
+  id               String    @id @default(uuid())
+  nfaNumber        String    @unique
+  project          String
+  itemDescription  String
+  ntdRefNo         String?
+  nfaDate          DateTime
+  indentNo         String?
+  sapPrNo          String?
+  wbsNumber        Json      // String[]
+  totalBudget      Decimal?
+  balance          Decimal?
+  currentNFAValue  Decimal?
+  estimatedBalance Decimal?
+  documentPath     String?   // Attached NFA document (relative path)
+  status           NfaStatus @default(DRAFT)
+  createdById      String?
+  createdBy        User?     @relation("UserNfas", fields: [createdById], references: [id])
+  createdAt        DateTime  @default(now())
+  updatedAt        DateTime  @updatedAt
+}
+
+enum NfaStatus {
+  DRAFT
+  SUBMITTED
+  APPROVED
+  REJECTED
+}
+
 // --- PHASE 9 - NOTIFICATIONS ----------------------------------------------------
 
 model Notification {
@@ -618,5 +655,54 @@ model Notification {
   link        String?  // Optional: URL to redirect user when clicked
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+}
+
+// --- IN-APP APPROVAL SYSTEM ---------------------------------------------------
+
+enum RequestStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  CANCELLED
+}
+
+enum StepStatus {
+  WAITING   // not yet this approver's turn
+  PENDING   // awaiting action from this approver now
+  APPROVED
+  REJECTED
+}
+
+enum ApprovalMode {
+  ANY // any one approver at this level is enough
+  ALL // everyone at this level must approve
+}
+
+model ApprovalRequest {
+  id          String         @id @default(uuid())
+  requestId   String         // Business ID e.g. "PR-2026-0012"
+  requestType String         // "PR" | "NFA" | "PO"
+  entityId    String         // FK value (Pr.id / Nfa.id / PurchaseOrder.id)
+  title       String?        // Short display title
+  status      RequestStatus  @default(PENDING)
+  steps       ApprovalStep[]
+  createdById String?
+  createdBy   User?          @relation("UserApprovalRequests", fields: [createdById], references: [id])
+  createdAt   DateTime       @default(now())
+  updatedAt   DateTime       @updatedAt
+}
+
+model ApprovalStep {
+  id                String          @id @default(uuid())
+  approvalRequestId String
+  approvalRequest   ApprovalRequest @relation(fields: [approvalRequestId], references: [id], onDelete: Cascade)
+  approverId        String
+  approver          User            @relation("UserApprovalSteps", fields: [approverId], references: [id])
+  level             Int             // 1, 2, 3 ... sequential order
+  approvalMode      ApprovalMode    @default(ANY)
+  status            StepStatus      @default(WAITING)
+  remarks           String?
+  actedAt           DateTime?
+  createdAt         DateTime        @default(now())
 }
 

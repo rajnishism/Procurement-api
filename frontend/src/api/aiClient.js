@@ -56,9 +56,20 @@ export const exportPRExcel = async (prData, indentNo) => {
  * Saves the AI-extracted PR to the persistent tracking list.
  * @param {Object} prData - The full PR data (Items + Metadata).
  */
-export const saveAiPr = async (prData) => {
+export const saveAiPr = async (prData, file = null, additionalFiles = []) => {
     try {
-        const response = await axios.post('/prs', prData);
+        let payload = prData;
+        let headers = {};
+        
+        if (file || additionalFiles.length > 0) {
+            payload = new FormData();
+            payload.append('data', JSON.stringify(prData));
+            if (file) payload.append('file', file);
+            additionalFiles.forEach(f => payload.append('additionalFiles', f));
+            headers = { 'Content-Type': 'multipart/form-data' };
+        }
+
+        const response = await axios.post('/prs', payload, { headers });
         return response.data;
     } catch (error) {
         console.error('Save AI PR Client Error:', error.response?.data || error.message);
